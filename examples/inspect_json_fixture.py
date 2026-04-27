@@ -17,7 +17,7 @@ actions = pd.read_json(FIXTURES / "actions.json")
 inspect_extractions(
     texts,
     {"entities": entities, "actions": actions},
-    evidence_col=["evidence", "alternate_evidence"],
+    highlight_col=["evidence", "alternate_evidence"],
     span_start_col="span_start",
     span_end_col="span_end",
     filter_categorical_cols=["entity_type", "confidence"],

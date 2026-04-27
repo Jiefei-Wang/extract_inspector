@@ -222,6 +222,12 @@ INDEX_HTML = """<!doctype html>
       word-break: break-word;
     }
 
+    .highlight-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
     .empty-state {
       height: 100%;
       display: grid;
@@ -562,25 +568,26 @@ INDEX_HTML = """<!doctype html>
             <div class="field-value">${escapeHtml(String(field.value))}</div>
           </div>
         `).join('');
-        const evidenceEntries = Object.entries(item.evidence_by_column || {});
-        const evidence = evidenceEntries.length ? evidenceEntries.map(([column, values]) => `
-          <div class="field-row">
-            <div class="field-label">${escapeHtml(`Evidence (${column})`)}</div>
-            <div class="field-value">${escapeHtml((values || []).join(' | '))}</div>
-          </div>
-        `).join('') : (item.evidence.length ? `
-          <div class="field-row">
-            <div class="field-label">Evidence</div>
-            <div class="field-value">${escapeHtml(item.evidence.join(' | '))}</div>
-          </div>
-        ` : '');
-        const spanValues = (item.spans || []).map((span) => {
-          return `[${span.start}, ${span.end}) ${span.text}`;
+        const highlightLines = [];
+        Object.entries(item.highlights_by_column || {}).forEach(([column, values]) => {
+          (values || []).forEach((value) => {
+            highlightLines.push(`(${column}) ${value}`);
+          });
         });
-        const spans = spanValues.length ? `
+        if (highlightLines.length === 0) {
+          (item.highlights || []).forEach((value) => {
+            highlightLines.push(value);
+          });
+        }
+        (item.spans || []).forEach((span) => {
+          highlightLines.push(`(${span.start}, ${span.end}) ${span.text}`);
+        });
+        const highlights = highlightLines.length ? `
           <div class="field-row">
-            <div class="field-label">Span</div>
-            <div class="field-value">${escapeHtml(spanValues.join(' | '))}</div>
+            <div class="field-label">Highlight</div>
+            <div class="field-value highlight-lines">
+              ${highlightLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}
+            </div>
           </div>
         ` : '';
         const matchBadge = item.has_match ? 'linked to text' : 'no exact text match';
@@ -592,8 +599,7 @@ INDEX_HTML = """<!doctype html>
               <span>${escapeHtml(`${item.summary} ${index + 1}`)}</span>
               <span class="item-badge">${escapeHtml(matchBadge)}</span>
             </div>
-            ${spans}
-            ${evidence}
+            ${highlights}
             ${fields}
           </div>
         `;

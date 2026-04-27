@@ -17,51 +17,51 @@ def first_item(dataset, group="extractions", text_id="t1"):
     return dataset.groups[group].texts[text_id].items[0]
 
 
-def test_string_evidence_column():
+def test_string_highlight_column():
     extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha beta", "value": "x"}])
 
     dataset = normalize_dataset(texts_df(), extractions)
 
-    assert first_item(dataset).evidence == ["Alpha beta"]
+    assert first_item(dataset).highlights == ["Alpha beta"]
 
 
-def test_list_valued_evidence_cell():
+def test_list_valued_highlight_cell():
     extractions = pd.DataFrame([{"text_id": "t1", "evidence": ["Alpha", "gamma"], "value": "x"}])
 
     dataset = normalize_dataset(texts_df(), extractions)
 
-    assert first_item(dataset).evidence == ["Alpha", "gamma"]
+    assert first_item(dataset).highlights == ["Alpha", "gamma"]
 
 
-def test_multiple_evidence_columns_with_string_cells():
+def test_multiple_highlight_columns_with_string_cells():
     extractions = pd.DataFrame(
         [{"text_id": "t1", "evidence_a": "Alpha", "evidence_b": "gamma", "value": "x"}]
     )
 
-    dataset = normalize_dataset(texts_df(), extractions, evidence_col=["evidence_a", "evidence_b"])
+    dataset = normalize_dataset(texts_df(), extractions, highlight_col=["evidence_a", "evidence_b"])
 
-    assert first_item(dataset).evidence == ["Alpha", "gamma"]
-    assert first_item(dataset).evidence_by_column == {
+    assert first_item(dataset).highlights == ["Alpha", "gamma"]
+    assert first_item(dataset).highlights_by_column == {
         "evidence_a": ["Alpha"],
         "evidence_b": ["gamma"],
     }
 
 
-def test_multiple_evidence_columns_with_list_and_string_cells():
+def test_multiple_highlight_columns_with_list_and_string_cells():
     extractions = pd.DataFrame(
         [{"text_id": "t1", "evidence_a": ["Alpha", "beta"], "evidence_b": "gamma", "value": "x"}]
     )
 
-    dataset = normalize_dataset(texts_df(), extractions, evidence_col=["evidence_a", "evidence_b"])
+    dataset = normalize_dataset(texts_df(), extractions, highlight_col=["evidence_a", "evidence_b"])
 
-    assert first_item(dataset).evidence == ["Alpha", "beta", "gamma"]
-    assert first_item(dataset).evidence_by_column == {
+    assert first_item(dataset).highlights == ["Alpha", "beta", "gamma"]
+    assert first_item(dataset).highlights_by_column == {
         "evidence_a": ["Alpha", "beta"],
         "evidence_b": ["gamma"],
     }
 
 
-def test_null_empty_and_non_string_evidence_values_are_ignored():
+def test_null_empty_and_non_string_highlight_values_are_ignored():
     extractions = pd.DataFrame(
         [
             {"text_id": "t1", "evidence": None, "value": "none"},
@@ -74,7 +74,7 @@ def test_null_empty_and_non_string_evidence_values_are_ignored():
 
     dataset = normalize_dataset(texts_df(), extractions)
 
-    assert [item.evidence for item in dataset.groups["extractions"].texts["t1"].items] == [
+    assert [item.highlights for item in dataset.groups["extractions"].texts["t1"].items] == [
         [],
         [],
         [],

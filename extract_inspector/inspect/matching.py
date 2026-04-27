@@ -28,8 +28,8 @@ def build_highlights(text: str, items: list[dict]) -> tuple[str, set[str]]:
             end = span.get("end")
             if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(text):
                 interval_map.setdefault((start, end), set()).add(item["item_id"])
-        for evidence in item.get("evidence", []):
-            for interval in find_matches(text, evidence):
+        for highlight in item.get("highlights", []):
+            for interval in find_matches(text, highlight):
                 interval_map.setdefault(interval, set()).add(item["item_id"])
 
     intervals = [

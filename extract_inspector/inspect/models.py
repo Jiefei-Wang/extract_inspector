@@ -23,8 +23,8 @@ class ExtractionItem:
     text_id: str
     group: str
     summary: str
-    evidence: list[str]
-    evidence_by_column: dict[str, list[str]] = field(default_factory=dict)
+    highlights: list[str]
+    highlights_by_column: dict[str, list[str]] = field(default_factory=dict)
     spans: list[Span] = field(default_factory=list)
     filter_values: dict[str, str] = field(default_factory=dict)
     fields: list[Field] = field(default_factory=list)

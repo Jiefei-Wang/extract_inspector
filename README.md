@@ -72,12 +72,12 @@ inspect_extractions(
 
 Each dictionary key becomes an extraction group in the UI.
 
-## Evidence Columns
+## Highlight Columns
 
-`evidence_col` can be a single column name:
+`highlight_col` can be a single column name:
 
 ```python
-inspect_extractions(texts, extractions, evidence_col="evidence")
+inspect_extractions(texts, extractions, highlight_col="evidence")
 ```
 
 or multiple column names:
@@ -86,11 +86,11 @@ or multiple column names:
 inspect_extractions(
     texts,
     extractions,
-    evidence_col=["evidence", "alternate_evidence", "quote"],
+    highlight_col=["evidence", "alternate_evidence", "quote"],
 )
 ```
 
-Each evidence cell may be either a string:
+Each highlight cell may be either a string:
 
 ```python
 "cannot log in"
@@ -134,7 +134,7 @@ inspect_extractions(
     subject_id="subject_id",
     extraction_id=None,
     extraction_group=None,
-    evidence_col="evidence",
+    highlight_col="evidence",
     span_start_col=None,
     span_end_col=None,
     filter_categorical_cols=None,
@@ -174,7 +174,7 @@ or matched lists:
 {"span_start": [4, 28], "span_end": [14, 35]}
 ```
 
-When both offset spans and evidence text are provided, the inspector highlights both. Invalid spans are skipped and reported as Python warnings.
+When both offset spans and highlight text are provided, the inspector highlights both. Invalid spans are skipped and reported as Python warnings.
 
 ## Demo
 
@@ -195,9 +195,9 @@ http://127.0.0.1:5001
 The demo shows:
 
 - multiple extraction groups
-- multiple evidence columns
-- string and list-valued evidence cells
-- matched and unmatched evidence
+- multiple highlight columns
+- string and list-valued highlight cells
+- matched and unmatched highlights
 
 ## Tests
 

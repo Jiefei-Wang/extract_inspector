@@ -21,18 +21,18 @@ def labelize(value: str) -> str:
     return value.replace("_", " ").title()
 
 
-def normalize_evidence_columns(evidence_col: str | Iterable[str] | None) -> list[str]:
-    if evidence_col is None:
+def normalize_highlight_columns(highlight_col: str | Iterable[str] | None) -> list[str]:
+    if highlight_col is None:
         return []
-    if isinstance(evidence_col, str):
-        return [evidence_col]
-    columns = list(evidence_col)
+    if isinstance(highlight_col, str):
+        return [highlight_col]
+    columns = list(highlight_col)
     if not all(isinstance(column, str) for column in columns):
-        raise TypeError("evidence_col must be a string, a list of strings, or None.")
+        raise TypeError("highlight_col must be a string, a list of strings, or None.")
     return columns
 
 
-def normalize_evidence_value(value: Any) -> list[str]:
+def normalize_highlight_value(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, float) and pd.isna(value):
@@ -41,33 +41,33 @@ def normalize_evidence_value(value: Any) -> list[str]:
         stripped = value.strip()
         return [stripped] if stripped else []
     if isinstance(value, (list, tuple, set)):
-        evidence = []
+        highlights = []
         for entry in value:
             if isinstance(entry, str):
                 stripped = entry.strip()
                 if stripped:
-                    evidence.append(stripped)
-        return evidence
+                    highlights.append(stripped)
+        return highlights
     return []
 
 
-def collect_evidence(row: Mapping[str, Any], evidence_columns: list[str]) -> list[str]:
-    evidence = []
-    for column in evidence_columns:
+def collect_highlights(row: Mapping[str, Any], highlight_columns: list[str]) -> list[str]:
+    highlights = []
+    for column in highlight_columns:
         if column in row:
-            evidence.extend(normalize_evidence_value(row[column]))
-    return evidence
+            highlights.extend(normalize_highlight_value(row[column]))
+    return highlights
 
 
-def collect_evidence_by_column(row: Mapping[str, Any], evidence_columns: list[str]) -> dict[str, list[str]]:
-    evidence_by_column = OrderedDict()
-    for column in evidence_columns:
+def collect_highlights_by_column(row: Mapping[str, Any], highlight_columns: list[str]) -> dict[str, list[str]]:
+    highlights_by_column = OrderedDict()
+    for column in highlight_columns:
         if column not in row:
             continue
-        evidence = normalize_evidence_value(row[column])
-        if evidence:
-            evidence_by_column[column] = evidence
-    return dict(evidence_by_column)
+        highlights = normalize_highlight_value(row[column])
+        if highlights:
+            highlights_by_column[column] = highlights
+    return dict(highlights_by_column)
 
 
 def is_null(value: Any) -> bool:
@@ -240,7 +240,7 @@ def normalize_dataset(
     subject_id: str | None = "subject_id",
     extraction_id: str | None = None,
     extraction_group: str | None = None,
-    evidence_col: str | Iterable[str] | None = "evidence",
+    highlight_col: str | Iterable[str] | None = "evidence",
     span_start_col: str | None = None,
     span_end_col: str | None = None,
     filter_categorical_cols: str | Iterable[str] | None = None,
@@ -267,13 +267,13 @@ def normalize_dataset(
             text=str(current_text),
         )
 
-    evidence_columns = normalize_evidence_columns(evidence_col)
+    highlight_columns = normalize_highlight_columns(highlight_col)
     filter_columns = normalize_categorical_filter_columns(filter_categorical_cols)
     extraction_tables = normalize_extractions_input(extractions, extraction_group)
     groups: OrderedDict[str, GroupData] = OrderedDict()
 
     structural_fields = {text_id}
-    for optional in [extraction_id, extraction_group, span_start_col, span_end_col, *evidence_columns]:
+    for optional in [extraction_id, extraction_group, span_start_col, span_end_col, *highlight_columns]:
         if optional:
             structural_fields.add(optional)
     if subject_id:
@@ -320,8 +320,8 @@ def normalize_dataset(
                 text_id=current_text_id,
                 group=row_group_key,
                 summary=row_group_label,
-                evidence=collect_evidence(row, evidence_columns),
-                evidence_by_column=collect_evidence_by_column(row, evidence_columns),
+                highlights=collect_highlights(row, highlight_columns),
+                highlights_by_column=collect_highlights_by_column(row, highlight_columns),
                 spans=collect_spans(
                     row,
                     source_document.text,
