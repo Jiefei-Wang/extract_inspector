@@ -20,9 +20,6 @@ inspect_extractions(
     evidence_col=["evidence", "alternate_evidence"],
     span_start_col="span_start",
     span_end_col="span_end",
+    filter_categorical_cols=["entity_type", "confidence"],
     extraction_id="extraction_id",
-    group_labels={
-        "entities": "Extracted Entities",
-        "actions": "Recommended Actions",
-    },
 )

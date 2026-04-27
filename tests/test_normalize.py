@@ -83,7 +83,7 @@ def test_null_empty_and_non_string_evidence_values_are_ignored():
     ]
 
 
-def test_missing_optional_subject_confidence_and_extraction_id_works():
+def test_missing_optional_subject_and_extraction_id_works():
     texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
     extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha", "value": "x"}])
 
@@ -92,7 +92,7 @@ def test_missing_optional_subject_confidence_and_extraction_id_works():
     document = dataset.groups["extractions"].texts["t1"]
     assert document.subject_id is None
     assert dataset.has_subject_id is False
-    assert dataset.has_confidence is False
+    assert dataset.filter_categorical_cols == []
     assert document.items[0].item_id == "extractions:t1:0"
 
 
@@ -205,3 +205,54 @@ def test_only_one_configured_span_column_warns():
         dataset = normalize_dataset(texts_df(), extractions, span_start_col="span_start")
 
     assert first_item(dataset).spans == []
+
+
+def test_no_categorical_filters_by_default():
+    extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha", "confidence": "high"}])
+
+    dataset = normalize_dataset(texts_df(), extractions)
+
+    item = first_item(dataset)
+    assert dataset.filter_categorical_cols == []
+    assert item.filter_values == {}
+    assert {field.label: field.value for field in item.fields}["Confidence"] == "high"
+
+
+def test_configured_filter_columns_are_collected_and_still_displayed():
+    extractions = pd.DataFrame(
+        [{"text_id": "t1", "evidence": "Alpha", "entity_type": "symptom", "confidence": "high"}]
+    )
+
+    dataset = normalize_dataset(
+        texts_df(),
+        extractions,
+        filter_categorical_cols=["entity_type", "confidence"],
+    )
+
+    item = first_item(dataset)
+    assert dataset.filter_categorical_cols == ["entity_type", "confidence"]
+    assert item.filter_values == {"entity_type": "symptom", "confidence": "high"}
+    assert {field.label: field.value for field in item.fields}["Entity Type"] == "symptom"
+    assert {field.label: field.value for field in item.fields}["Confidence"] == "high"
+
+
+def test_null_list_and_dict_filter_values_are_ignored():
+    extractions = pd.DataFrame(
+        [
+            {
+                "text_id": "t1",
+                "entity_type": None,
+                "confidence": ["high"],
+                "metadata": {"source": "x"},
+                "flag": True,
+            }
+        ]
+    )
+
+    dataset = normalize_dataset(
+        texts_df(),
+        extractions,
+        filter_categorical_cols=["entity_type", "confidence", "metadata", "flag"],
+    )
+
+    assert first_item(dataset).filter_values == {"flag": "True"}

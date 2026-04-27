@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import webbrowser
 from threading import Timer
 from typing import Any
@@ -60,7 +61,7 @@ def item_to_dict(item: ExtractionItem) -> dict:
         "evidence": item.evidence,
         "evidence_by_column": item.evidence_by_column,
         "spans": [span_to_dict(span) for span in item.spans],
-        "confidence": clean_json_value(item.confidence),
+        "filter_values": item.filter_values,
         "fields": [field_to_dict(field) for field in item.fields],
         "has_match": item.has_match,
     }
@@ -84,16 +85,36 @@ def document_to_dict(document: TextDocument, items: list[ExtractionItem]) -> dic
     }
 
 
-def filter_document_items(document: TextDocument, confidence_filter: str | None) -> list[ExtractionItem]:
-    if not confidence_filter or confidence_filter == "all":
+def parse_categorical_filters(filters_json: str | None) -> dict[str, str]:
+    if not filters_json:
+        return {}
+    try:
+        parsed = json.loads(filters_json)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    filters = {}
+    for key, value in parsed.items():
+        if isinstance(key, str) and isinstance(value, str) and value and value != "all":
+            filters[key] = value
+    return filters
+
+
+def filter_document_items(document: TextDocument, categorical_filters: dict[str, str]) -> list[ExtractionItem]:
+    if not categorical_filters:
         return list(document.items)
-    return [item for item in document.items if str(item.confidence) == confidence_filter]
+    return [
+        item
+        for item in document.items
+        if all(item.filter_values.get(column) == value for column, value in categorical_filters.items())
+    ]
 
 
 def filter_texts_page(
     dataset: InspectorDataset,
     group_key: str,
-    confidence_filter: str | None,
+    categorical_filters: dict[str, str],
     text_ids: set[str] | None,
     subject_ids: set[str] | None,
     offset: int,
@@ -111,7 +132,7 @@ def filter_texts_page(
         if subject_ids is not None and document.subject_id not in subject_ids:
             continue
 
-        items = filter_document_items(document, confidence_filter)
+        items = filter_document_items(document, categorical_filters)
         if not items:
             continue
 
@@ -124,14 +145,25 @@ def filter_texts_page(
     return page, total
 
 
-def confidence_values(dataset: InspectorDataset) -> list[str]:
-    values = set()
-    for group in dataset.groups.values():
-        for document in group.texts.values():
-            for item in document.items:
-                if item.confidence not in (None, ""):
-                    values.add(str(item.confidence))
-    return sorted(values)
+def group_filter_definitions(dataset: InspectorDataset, group_key: str) -> list[dict]:
+    values_by_column = {column: set() for column in dataset.filter_categorical_cols}
+    group = dataset.groups[group_key]
+    for document in group.texts.values():
+        for item in document.items:
+            for column in dataset.filter_categorical_cols:
+                value = item.filter_values.get(column)
+                if value not in (None, ""):
+                    values_by_column[column].add(value)
+
+    return [
+        {
+            "column": column,
+            "label": column.replace("_", " ").title(),
+            "values": sorted(values),
+        }
+        for column, values in values_by_column.items()
+        if values
+    ]
 
 
 def create_app(dataset: InspectorDataset) -> Flask:
@@ -148,6 +180,7 @@ def create_app(dataset: InspectorDataset) -> Flask:
                 "key": group_key,
                 "label": group_data.label,
                 "total": len(group_data.text_ids),
+                "filters": group_filter_definitions(dataset, group_key),
             }
             for group_key, group_data in dataset.groups.items()
         ]
@@ -155,8 +188,6 @@ def create_app(dataset: InspectorDataset) -> Flask:
             {
                 "groups": groups,
                 "has_subject_id": dataset.has_subject_id,
-                "has_confidence": dataset.has_confidence,
-                "confidence_values": confidence_values(dataset),
             }
         )
 
@@ -170,12 +201,12 @@ def create_app(dataset: InspectorDataset) -> Flask:
         limit = parse_int(request.args.get("limit"), DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT)
         text_ids = parse_ids(request.args.get("text_ids"))
         subject_ids = parse_ids(request.args.get("subject_ids"))
-        confidence_filter = request.args.get("confidence", "all") if dataset.has_confidence else None
+        categorical_filters = parse_categorical_filters(request.args.get("filters"))
 
         page, total = filter_texts_page(
             dataset,
             group_key,
-            confidence_filter,
+            categorical_filters,
             text_ids,
             subject_ids,
             offset,
@@ -205,12 +236,11 @@ def inspect_extractions(
     extraction_id: str | None = None,
     extraction_group: str | None = None,
     evidence_col: str | list[str] | None = "evidence",
-    confidence_col: str | None = "confidence",
     span_start_col: str | None = None,
     span_end_col: str | None = None,
+    filter_categorical_cols: str | list[str] | None = None,
     exclude_fields: list[str] | None = None,
     field_labels: dict[str, str] | None = None,
-    group_labels: dict[str, str] | None = None,
     host: str = "127.0.0.1",
     port: int = 5001,
     debug: bool = False,
@@ -225,12 +255,11 @@ def inspect_extractions(
         extraction_id=extraction_id,
         extraction_group=extraction_group,
         evidence_col=evidence_col,
-        confidence_col=confidence_col,
         span_start_col=span_start_col,
         span_end_col=span_end_col,
+        filter_categorical_cols=filter_categorical_cols,
         exclude_fields=exclude_fields,
         field_labels=field_labels,
-        group_labels=group_labels,
     )
     app = create_app(dataset)
     url = f"http://{host}:{port}"

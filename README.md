@@ -104,6 +104,24 @@ or a list of strings:
 
 All valid evidence strings are highlighted in the source text.
 
+## Categorical Filters
+
+By default, the left filter panel only shows Text ID and Subject ID filters.
+
+To add dropdown filters for extraction columns, pass `filter_categorical_cols`:
+
+```python
+inspect_extractions(
+    texts,
+    extractions,
+    filter_categorical_cols=["entity_type", "confidence"],
+)
+```
+
+Each configured column appears as a dropdown with `All` selected by default. Selecting a value filters extracted items, and a text remains visible if it has at least one matching item.
+
+Filter columns still appear in extracted item cards as normal fields unless you hide them with `exclude_fields`.
+
 ## API
 
 ```python
@@ -117,12 +135,11 @@ inspect_extractions(
     extraction_id=None,
     extraction_group=None,
     evidence_col="evidence",
-    confidence_col="confidence",
     span_start_col=None,
     span_end_col=None,
+    filter_categorical_cols=None,
     exclude_fields=None,
     field_labels=None,
-    group_labels=None,
     host="127.0.0.1",
     port=5001,
     debug=False,

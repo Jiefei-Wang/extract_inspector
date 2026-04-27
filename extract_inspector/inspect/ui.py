@@ -245,10 +245,7 @@ INDEX_HTML = """<!doctype html>
     <aside class="panel">
       <div class="group-bar" id="groupBar"></div>
       <div class="filter-bar">
-        <div id="confidenceFilterBlock">
-          <label class="filter-label" for="confidenceFilter">Confidence</label>
-          <select class="filter-control" id="confidenceFilter"></select>
-        </div>
+        <div id="categoricalFilters"></div>
         <label class="filter-label" for="textIdFilter">Text ID</label>
         <input class="filter-control" id="textIdFilter" type="text" placeholder="text-001,text-002">
         <div id="subjectFilterBlock">
@@ -277,12 +274,10 @@ INDEX_HTML = """<!doctype html>
       activeGroup: null,
       activeTextId: null,
       hoveredItemId: null,
-      confidenceFilter: 'all',
+      categoricalFilters: {},
       textIdFilter: '',
       subjectIdFilter: '',
       hasSubjectId: false,
-      hasConfidence: false,
-      confidenceValues: [],
       offset: 0,
       total: 0,
       hasMore: false,
@@ -295,8 +290,6 @@ INDEX_HTML = """<!doctype html>
       const data = await fetchJson('/api/groups', 'Failed to load extraction groups from server');
       state.groups = data.groups || [];
       state.hasSubjectId = Boolean(data.has_subject_id);
-      state.hasConfidence = Boolean(data.has_confidence);
-      state.confidenceValues = data.confidence_values || [];
       bindControls();
       initializeSelection();
       await loadTexts(true);
@@ -317,19 +310,6 @@ INDEX_HTML = """<!doctype html>
     }
 
     function bindControls() {
-      const confidenceBlock = document.getElementById('confidenceFilterBlock');
-      const confidenceFilter = document.getElementById('confidenceFilter');
-      confidenceBlock.classList.toggle('hidden', !state.hasConfidence);
-      confidenceFilter.innerHTML = '<option value="all">All</option>' + state.confidenceValues.map((value) => {
-        return `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`;
-      }).join('');
-      confidenceFilter.value = state.confidenceFilter;
-      confidenceFilter.addEventListener('change', (event) => {
-        state.confidenceFilter = event.target.value;
-        state.hoveredItemId = null;
-        loadTexts(true);
-      });
-
       const textIdFilter = document.getElementById('textIdFilter');
       textIdFilter.value = state.textIdFilter;
       textIdFilter.addEventListener('input', (event) => {
@@ -354,6 +334,10 @@ INDEX_HTML = """<!doctype html>
       state.activeGroup = group ? group.key : null;
     }
 
+    function getActiveGroup() {
+      return state.groups.find((group) => group.key === state.activeGroup) || null;
+    }
+
     function getActiveText() {
       if (!state.activeTextId) return null;
       return state.texts.find((text) => text.text_id === state.activeTextId) || null;
@@ -365,8 +349,14 @@ INDEX_HTML = """<!doctype html>
         offset: String(state.offset),
         limit: '1000',
       });
-      if (state.hasConfidence) {
-        params.set('confidence', state.confidenceFilter);
+      const activeFilters = {};
+      for (const [column, value] of Object.entries(state.categoricalFilters)) {
+        if (value && value !== 'all') {
+          activeFilters[column] = value;
+        }
+      }
+      if (Object.keys(activeFilters).length > 0) {
+        params.set('filters', JSON.stringify(activeFilters));
       }
       if (state.textIdFilter.trim()) {
         params.set('text_ids', state.textIdFilter);
@@ -426,6 +416,7 @@ INDEX_HTML = """<!doctype html>
 
     function render() {
       renderGroups();
+      renderCategoricalFilters();
       renderTextList();
       renderMainPanel();
       renderDetailPanel();
@@ -441,10 +432,41 @@ INDEX_HTML = """<!doctype html>
         button.textContent = `${group.label} (${group.total})`;
         button.addEventListener('click', () => {
           state.activeGroup = group.key;
+          state.categoricalFilters = {};
           state.hoveredItemId = null;
           loadTexts(true);
         });
         groupBar.appendChild(button);
+      }
+    }
+
+    function renderCategoricalFilters() {
+      const container = document.getElementById('categoricalFilters');
+      const group = getActiveGroup();
+      const filters = group ? (group.filters || []) : [];
+      container.innerHTML = '';
+      container.classList.toggle('hidden', filters.length === 0);
+
+      for (const filter of filters) {
+        const id = `filter-${filter.column}`;
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
+          <label class="filter-label" for="${escapeHtml(id)}">${escapeHtml(filter.label)}</label>
+          <select class="filter-control" id="${escapeHtml(id)}">
+            <option value="all">All</option>
+            ${(filter.values || []).map((value) => {
+              return `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`;
+            }).join('')}
+          </select>
+        `;
+        const select = wrapper.querySelector('select');
+        select.value = state.categoricalFilters[filter.column] || 'all';
+        select.addEventListener('change', (event) => {
+          state.categoricalFilters[filter.column] = event.target.value;
+          state.hoveredItemId = null;
+          loadTexts(true);
+        });
+        container.appendChild(wrapper);
       }
     }
 
@@ -552,12 +574,6 @@ INDEX_HTML = """<!doctype html>
             <div class="field-value">${escapeHtml(item.evidence.join(' | '))}</div>
           </div>
         ` : '');
-        const confidence = item.confidence !== null && item.confidence !== undefined ? `
-          <div class="field-row">
-            <div class="field-label">Confidence</div>
-            <div class="field-value">${escapeHtml(String(item.confidence))}</div>
-          </div>
-        ` : '';
         const spanValues = (item.spans || []).map((span) => {
           return `[${span.start}, ${span.end}) ${span.text}`;
         });
@@ -576,7 +592,6 @@ INDEX_HTML = """<!doctype html>
               <span>${escapeHtml(`${item.summary} ${index + 1}`)}</span>
               <span class="item-badge">${escapeHtml(matchBadge)}</span>
             </div>
-            ${confidence}
             ${spans}
             ${evidence}
             ${fields}

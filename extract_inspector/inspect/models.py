@@ -26,7 +26,7 @@ class ExtractionItem:
     evidence: list[str]
     evidence_by_column: dict[str, list[str]] = field(default_factory=dict)
     spans: list[Span] = field(default_factory=list)
-    confidence: Any = None
+    filter_values: dict[str, str] = field(default_factory=dict)
     fields: list[Field] = field(default_factory=list)
     has_match: bool = False
 
@@ -51,4 +51,4 @@ class GroupData:
 class InspectorDataset:
     groups: dict[str, GroupData]
     has_subject_id: bool
-    has_confidence: bool
+    filter_categorical_cols: list[str] = field(default_factory=list)

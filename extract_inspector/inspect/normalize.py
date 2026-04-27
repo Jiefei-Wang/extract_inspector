@@ -157,6 +157,41 @@ def collect_spans(
     return spans
 
 
+def normalize_categorical_filter_columns(filter_categorical_cols: str | Iterable[str] | None) -> list[str]:
+    if filter_categorical_cols is None:
+        return []
+    if isinstance(filter_categorical_cols, str):
+        return [filter_categorical_cols]
+    columns = list(filter_categorical_cols)
+    if not all(isinstance(column, str) for column in columns):
+        raise TypeError("filter_categorical_cols must be a string, a list of strings, or None.")
+    return columns
+
+
+def normalize_filter_value(value: Any) -> str | None:
+    if is_null(value):
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, Number):
+        return normalize_id(value)
+    return None
+
+
+def collect_filter_values(row: Mapping[str, Any], filter_columns: list[str]) -> dict[str, str]:
+    values = OrderedDict()
+    for column in filter_columns:
+        if column not in row:
+            continue
+        value = normalize_filter_value(row[column])
+        if value is not None:
+            values[column] = value
+    return dict(values)
+
+
 def normalize_frame(df: pd.DataFrame, name: str) -> list[dict]:
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"{name} must be a pandas DataFrame.")
@@ -206,12 +241,11 @@ def normalize_dataset(
     extraction_id: str | None = None,
     extraction_group: str | None = None,
     evidence_col: str | Iterable[str] | None = "evidence",
-    confidence_col: str | None = "confidence",
     span_start_col: str | None = None,
     span_end_col: str | None = None,
+    filter_categorical_cols: str | Iterable[str] | None = None,
     exclude_fields: Iterable[str] | None = None,
     field_labels: Mapping[str, str] | None = None,
-    group_labels: Mapping[str, str] | None = None,
 ) -> InspectorDataset:
     text_rows = normalize_frame(texts, "texts")
     if text_id not in texts.columns:
@@ -234,12 +268,12 @@ def normalize_dataset(
         )
 
     evidence_columns = normalize_evidence_columns(evidence_col)
+    filter_columns = normalize_categorical_filter_columns(filter_categorical_cols)
     extraction_tables = normalize_extractions_input(extractions, extraction_group)
     groups: OrderedDict[str, GroupData] = OrderedDict()
-    has_confidence = bool(confidence_col)
 
     structural_fields = {text_id}
-    for optional in [extraction_id, extraction_group, confidence_col, span_start_col, span_end_col, *evidence_columns]:
+    for optional in [extraction_id, extraction_group, span_start_col, span_end_col, *evidence_columns]:
         if optional:
             structural_fields.add(optional)
     if subject_id:
@@ -256,9 +290,6 @@ def normalize_dataset(
             raise ValueError(f"extractions group {table_group_key!r} is missing required column {text_id!r}.")
 
         rows = normalize_frame(frame, f"extractions[{table_group_key!r}]")
-        if confidence_col and confidence_col not in frame.columns:
-            has_confidence = False
-
         for row_index, row in enumerate(rows):
             current_text_id = normalize_id(row[text_id])
             source_document = text_lookup.get(current_text_id)
@@ -278,11 +309,7 @@ def normalize_dataset(
                     text=source_document.text,
                 )
 
-            row_group_label = (
-                group_labels.get(row_group_key, labelize(row_group_key))
-                if group_labels
-                else labelize(row_group_key)
-            )
+            row_group_label = labelize(row_group_key)
             item_id = (
                 normalize_id(row[extraction_id])
                 if extraction_id and row.get(extraction_id) not in (None, "")
@@ -302,13 +329,13 @@ def normalize_dataset(
                     span_end_col,
                     item_id,
                 ),
-                confidence=row.get(confidence_col) if confidence_col else None,
+                filter_values=collect_filter_values(row, filter_columns),
                 fields=build_item_fields(row, structural_fields, field_labels),
             )
             group_documents[current_text_id].items.append(item)
 
     for group_key, group_documents in group_documents_by_key.items():
-        group_label = group_labels.get(group_key, labelize(group_key)) if group_labels else labelize(group_key)
+        group_label = labelize(group_key)
         groups[group_key] = GroupData(
             key=group_key,
             label=group_label,
@@ -316,4 +343,8 @@ def normalize_dataset(
             texts=dict(group_documents),
         )
 
-    return InspectorDataset(groups=dict(groups), has_subject_id=has_subject_id, has_confidence=has_confidence)
+    return InspectorDataset(
+        groups=dict(groups),
+        has_subject_id=has_subject_id,
+        filter_categorical_cols=filter_columns,
+    )

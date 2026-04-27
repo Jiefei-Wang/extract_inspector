@@ -19,6 +19,7 @@ def load_fixture_dataset():
         evidence_col=["evidence", "alternate_evidence"],
         span_start_col="span_start",
         span_end_col="span_end",
+        filter_categorical_cols=["entity_type", "confidence"],
         extraction_id="extraction_id",
     )
 
@@ -50,6 +51,23 @@ def test_json_fixtures_render_through_flask_api():
 
     groups = client.get("/api/groups").json
     assert groups["groups"][0]["key"] == "entities"
+    assert groups["groups"][0]["filters"] == [
+        {
+            "column": "entity_type",
+            "label": "Entity Type",
+            "values": [
+                "context",
+                "failure_reason",
+                "measurement",
+                "problem",
+                "remediation",
+                "resolution",
+                "symptom",
+                "unmatched",
+            ],
+        },
+        {"column": "confidence", "label": "Confidence", "values": ["high", "low", "medium"]},
+    ]
 
     response = client.get("/api/texts?group=entities")
     assert response.status_code == 200
@@ -67,3 +85,24 @@ def test_json_fixtures_render_through_flask_api():
     unmatched_text = client.get("/api/texts?group=entities&text_ids=text-003").json["texts"][0]
     unmatched_item = [item for item in unmatched_text["items"] if item["item_id"] == "entity-008"][0]
     assert unmatched_item["has_match"] is False
+
+
+def test_json_fixture_categorical_filtering():
+    app = create_app(load_fixture_dataset())
+    client = app.test_client()
+
+    response = client.get('/api/texts?group=entities&filters={"confidence":"medium"}')
+    assert response.status_code == 200
+    items = [item for text in response.json["texts"] for item in text["items"]]
+    assert {item["filter_values"]["confidence"] for item in items} == {"medium"}
+    assert {item["item_id"] for item in items} == {"entity-003", "entity-004"}
+
+
+def test_json_fixture_categorical_filters_use_and_semantics():
+    app = create_app(load_fixture_dataset())
+    client = app.test_client()
+
+    response = client.get('/api/texts?group=entities&filters={"confidence":"high","entity_type":"resolution"}')
+    assert response.status_code == 200
+    items = [item for text in response.json["texts"] for item in text["items"]]
+    assert [item["item_id"] for item in items] == ["entity-007"]
