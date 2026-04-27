@@ -73,8 +73,16 @@ def collect_highlights_by_column(row: Mapping[str, Any], highlight_columns: list
 def is_null(value: Any) -> bool:
     if value is None:
         return True
-    if isinstance(value, float) and pd.isna(value):
-        return True
+    if isinstance(value, (list, tuple, set, dict)):
+        return False
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    if isinstance(missing, bool):
+        return missing
+    if getattr(missing, "shape", None) == ():
+        return bool(missing)
     return False
 
 
@@ -238,11 +246,23 @@ def build_item_fields(
 ) -> list[Field]:
     fields = []
     for key, value in row.items():
-        if key in excluded or value in (None, "", []):
+        if key in excluded or is_empty_field_value(value):
             continue
         label = field_labels.get(key, labelize(key)) if field_labels else labelize(key)
         fields.append(Field(label=label, value=value))
     return fields
+
+
+def is_empty_field_value(value: Any) -> bool:
+    if is_null(value):
+        return True
+    if isinstance(value, str):
+        return value == ""
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    if hasattr(value, "size"):
+        return value.size == 0
+    return False
 
 
 def normalize_dataset(
