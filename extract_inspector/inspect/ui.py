@@ -558,12 +558,15 @@ INDEX_HTML = """<!doctype html>
             <div class="field-value">${escapeHtml(String(item.confidence))}</div>
           </div>
         ` : '';
-        const spans = (item.spans || []).map((span) => `
+        const spanValues = (item.spans || []).map((span) => {
+          return `[${span.start}, ${span.end}) ${span.text}`;
+        });
+        const spans = spanValues.length ? `
           <div class="field-row">
             <div class="field-label">Span</div>
-            <div class="field-value">[${escapeHtml(span.start)}, ${escapeHtml(span.end)}) ${escapeHtml(span.text)}</div>
+            <div class="field-value">${escapeHtml(spanValues.join(' | '))}</div>
           </div>
-        `).join('');
+        ` : '';
         const matchBadge = item.has_match ? 'linked to text' : 'no exact text match';
         const unmatchedClass = item.has_match ? '' : ' unmatched';
 

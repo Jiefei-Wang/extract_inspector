@@ -29,15 +29,17 @@ def test_json_fixtures_load_into_normalized_dataset():
     assert list(dataset.groups) == ["entities", "actions"]
     assert dataset.groups["entities"].texts["text-001"].items[0].evidence == [
         "chest pain after exercise",
-        "customer reported chest pain",
-        "after exercise",
+        "Symptom severity was moderate",
     ]
     assert dataset.groups["entities"].texts["text-001"].items[0].evidence_by_column == {
         "evidence": ["chest pain after exercise"],
-        "alternate_evidence": ["customer reported chest pain", "after exercise"],
+        "alternate_evidence": ["Symptom severity was moderate"],
     }
-    assert [(span.start, span.end, span.text) for span in dataset.groups["entities"].texts["text-001"].items[0].spans] == [
-        (37, 62, "chest pain after exercise")
+    assert [(span.start, span.end, span.text) for span in dataset.groups["entities"].texts["text-001"].items[2].spans] == [
+        (19, 36, "customer reported")
+    ]
+    assert [(span.start, span.end, span.text) for span in dataset.groups["entities"].texts["text-002"].items[1].spans] == [
+        (128, 146, "waiting 15 minutes")
     ]
     assert dataset.groups["entities"].texts["text-003"].items[-1].evidence == ["database outage"]
 
@@ -56,12 +58,12 @@ def test_json_fixtures_render_through_flask_api():
     assert first_text["highlighted_html"].count('class="text-highlight"') >= 3
     assert first_text["items"][0]["evidence_by_column"] == {
         "evidence": ["chest pain after exercise"],
-        "alternate_evidence": ["customer reported chest pain", "after exercise"],
+        "alternate_evidence": ["Symptom severity was moderate"],
     }
-    assert first_text["items"][0]["spans"] == [
-        {"start": 37, "end": 62, "text": "chest pain after exercise"}
+    assert first_text["items"][2]["spans"] == [
+        {"start": 19, "end": 36, "text": "customer reported"}
     ]
 
     unmatched_text = client.get("/api/texts?group=entities&text_ids=text-003").json["texts"][0]
-    unmatched_item = [item for item in unmatched_text["items"] if item["item_id"] == "entity-005"][0]
+    unmatched_item = [item for item in unmatched_text["items"] if item["item_id"] == "entity-008"][0]
     assert unmatched_item["has_match"] is False
