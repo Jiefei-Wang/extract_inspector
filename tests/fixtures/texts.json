@@ -1,0 +1,17 @@
+[
+  {
+    "text_id": "text-001",
+    "subject_id": "subject-a",
+    "text": "Visit summary: The customer reported chest pain after exercise. Blood pressure was 145/92. They were advised to rest and schedule a follow-up appointment."
+  },
+  {
+    "text_id": "text-002",
+    "subject_id": "subject-b",
+    "text": "Support ticket: The user cannot log in after password reset. Error message says account temporarily locked. Support recommended waiting 15 minutes and trying again."
+  },
+  {
+    "text_id": "text-003",
+    "subject_id": "subject-a",
+    "text": "Project note: The migration finished on Friday. Two downstream jobs failed because the customer table was missing an index. The index was rebuilt overnight."
+  }
+]

@@ -1,0 +1,34 @@
+[
+  {
+    "extraction_id": "action-001",
+    "text_id": "text-001",
+    "action": "rest",
+    "owner": "subject",
+    "evidence": "advised to rest",
+    "confidence": "medium"
+  },
+  {
+    "extraction_id": "action-002",
+    "text_id": "text-001",
+    "action": "schedule follow-up",
+    "owner": "subject",
+    "evidence": "schedule a follow-up appointment",
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "action-003",
+    "text_id": "text-002",
+    "action": "wait and retry",
+    "owner": "support",
+    "evidence": ["waiting 15 minutes", "trying again"],
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "action-004",
+    "text_id": "text-003",
+    "action": "rebuild index",
+    "owner": "data team",
+    "evidence": "index was rebuilt overnight",
+    "confidence": "high"
+  }
+]

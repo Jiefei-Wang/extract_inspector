@@ -1,0 +1,57 @@
+[
+  {
+    "extraction_id": "entity-001",
+    "text_id": "text-001",
+    "entity_type": "symptom",
+    "value": "chest pain",
+    "evidence": "chest pain after exercise",
+    "alternate_evidence": ["customer reported chest pain", "after exercise"],
+    "span_start": 37,
+    "span_end": 62,
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "entity-002",
+    "text_id": "text-001",
+    "entity_type": "measurement",
+    "value": "145/92",
+    "evidence": "Blood pressure was 145/92",
+    "alternate_evidence": null,
+    "span_start": 64,
+    "span_end": 90,
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "entity-003",
+    "text_id": "text-002",
+    "entity_type": "problem",
+    "value": "cannot log in",
+    "evidence": ["cannot log in", "account temporarily locked"],
+    "alternate_evidence": "Error message says account temporarily locked",
+    "span_start": [25, 80],
+    "span_end": [38, 106],
+    "confidence": "medium"
+  },
+  {
+    "extraction_id": "entity-004",
+    "text_id": "text-003",
+    "entity_type": "failure_reason",
+    "value": "missing index",
+    "evidence": "customer table was missing an index",
+    "alternate_evidence": ["downstream jobs failed", "The index was rebuilt overnight"],
+    "span_start": [52, 87],
+    "span_end": [74, 122],
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "entity-005",
+    "text_id": "text-003",
+    "entity_type": "unmatched",
+    "value": "database outage",
+    "evidence": "database outage",
+    "alternate_evidence": [],
+    "span_start": null,
+    "span_end": null,
+    "confidence": "low"
+  }
+]
