@@ -199,12 +199,26 @@ def normalize_frame(df: pd.DataFrame, name: str) -> list[dict]:
     return clean_df.to_dict(orient="records")
 
 
+def is_missing_required_value(value: Any) -> bool:
+    if is_null(value):
+        return True
+    return isinstance(value, str) and not value.strip()
+
+
+def warn_missing_required_row(*, column: str, row_index: int, table_name: str) -> None:
+    warnings.warn(
+        f"Skipping {table_name} row {row_index}: missing required value {column!r}.",
+        stacklevel=2,
+    )
+
+
 def normalize_extractions_input(
     extractions: pd.DataFrame | Mapping[str, pd.DataFrame],
     extraction_group: str | None,
 ) -> OrderedDict[str, pd.DataFrame]:
     if isinstance(extractions, pd.DataFrame):
-        return OrderedDict([(extraction_group or "extractions", extractions)])
+        group_key = extraction_group if extraction_group and extraction_group in extractions.columns else "extractions"
+        return OrderedDict([(group_key, extractions)])
     if isinstance(extractions, Mapping):
         normalized = OrderedDict()
         for key, value in extractions.items():
@@ -255,11 +269,16 @@ def normalize_dataset(
 
     has_subject_id = bool(subject_id and subject_id in texts.columns)
     text_lookup: OrderedDict[str, TextDocument] = OrderedDict()
-    for row in text_rows:
-        current_text_id = normalize_id(row[text_id])
+    for row_index, row in enumerate(text_rows):
+        current_text_id_value = row.get(text_id)
+        if is_missing_required_value(current_text_id_value):
+            warn_missing_required_row(column=text_id, row_index=row_index, table_name="texts")
+            continue
         current_text = row.get(text_col)
-        if current_text is None:
-            current_text = ""
+        if is_missing_required_value(current_text):
+            warn_missing_required_row(column=text_col, row_index=row_index, table_name="texts")
+            continue
+        current_text_id = normalize_id(current_text_id_value)
         subject_value = row.get(subject_id) if has_subject_id else None
         text_lookup[current_text_id] = TextDocument(
             text_id=current_text_id,
@@ -291,7 +310,15 @@ def normalize_dataset(
 
         rows = normalize_frame(frame, f"extractions[{table_group_key!r}]")
         for row_index, row in enumerate(rows):
-            current_text_id = normalize_id(row[text_id])
+            current_text_id_value = row.get(text_id)
+            if is_missing_required_value(current_text_id_value):
+                warn_missing_required_row(
+                    column=text_id,
+                    row_index=row_index,
+                    table_name=f"extractions group {table_group_key!r}",
+                )
+                continue
+            current_text_id = normalize_id(current_text_id_value)
             source_document = text_lookup.get(current_text_id)
             if source_document is None:
                 continue

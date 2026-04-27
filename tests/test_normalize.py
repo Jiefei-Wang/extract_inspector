@@ -96,6 +96,69 @@ def test_missing_optional_subject_and_extraction_id_works():
     assert document.items[0].item_id == "extractions:t1:0"
 
 
+def test_missing_configured_optional_columns_are_ignored():
+    texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
+    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}])
+
+    dataset = normalize_dataset(
+        texts,
+        extractions,
+        subject_id="subject_id",
+        extraction_id="item_id",
+        extraction_group="category",
+        highlight_col=["evidence", "quote"],
+        span_start_col="span_start",
+        span_end_col="span_end",
+        filter_categorical_cols=["confidence"],
+    )
+
+    document = dataset.groups["extractions"].texts["t1"]
+    item = document.items[0]
+    assert document.subject_id is None
+    assert item.item_id == "extractions:t1:0"
+    assert item.highlights == []
+    assert item.highlights_by_column == {}
+    assert item.spans == []
+    assert item.filter_values == {}
+    assert {field.label: field.value for field in item.fields} == {"Value": "x"}
+
+
+@pytest.mark.parametrize("row", [{"text_id": None, "text": "Alpha."}, {"text_id": "", "text": "Alpha."}])
+def test_missing_text_id_value_warns_and_skips_row(row):
+    texts = pd.DataFrame([row, {"text_id": "t1", "text": "Beta."}])
+    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}])
+
+    with pytest.warns(UserWarning, match="Skipping texts row 0: missing required value 'text_id'"):
+        dataset = normalize_dataset(texts, extractions)
+
+    assert list(dataset.groups["extractions"].texts) == ["t1"]
+
+
+@pytest.mark.parametrize("row", [{"text_id": "t1", "text": None}, {"text_id": "t1", "text": ""}])
+def test_missing_text_value_warns_and_skips_row(row):
+    texts = pd.DataFrame([row, {"text_id": "t2", "text": "Beta."}])
+    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}, {"text_id": "t2", "value": "y"}])
+
+    with pytest.warns(UserWarning, match="Skipping texts row 0: missing required value 'text'"):
+        dataset = normalize_dataset(texts, extractions)
+
+    assert list(dataset.groups["extractions"].texts) == ["t2"]
+
+
+@pytest.mark.parametrize("row", [{"text_id": None, "value": "x"}, {"text_id": "", "value": "x"}])
+def test_missing_extraction_text_id_value_warns_and_skips_row(row):
+    texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
+    extractions = pd.DataFrame([row, {"text_id": "t1", "value": "y"}])
+
+    with pytest.warns(
+        UserWarning,
+        match="Skipping extractions group 'extractions' row 0: missing required value 'text_id'",
+    ):
+        dataset = normalize_dataset(texts, extractions)
+
+    assert [item.fields[0].value for item in dataset.groups["extractions"].texts["t1"].items] == ["y"]
+
+
 def test_generated_extraction_ids_are_stable_within_run():
     extractions = pd.DataFrame(
         [
