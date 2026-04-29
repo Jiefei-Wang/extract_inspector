@@ -1,0 +1,38 @@
+[
+  {
+    "extraction_id": "lab-001",
+    "text_id": "note-001",
+    "test_name": "A1c",
+    "value": "8.2",
+    "unit": "%",
+    "flag": "high",
+    "evidence": "A1c 8.2%"
+  },
+  {
+    "extraction_id": "lab-002",
+    "text_id": "note-001",
+    "test_name": "creatinine",
+    "value": "1.4",
+    "unit": "mg/dL",
+    "flag": "high",
+    "evidence": "creatinine 1.4 mg/dL"
+  },
+  {
+    "extraction_id": "lab-003",
+    "text_id": "note-002",
+    "test_name": "hemoglobin",
+    "value": "10.1",
+    "unit": "g/dL",
+    "flag": "low",
+    "evidence": "hemoglobin 10.1 g/dL"
+  },
+  {
+    "extraction_id": "lab-004",
+    "text_id": "note-002",
+    "test_name": "ferritin",
+    "value": "9",
+    "unit": "ng/mL",
+    "flag": "low",
+    "evidence": "ferritin 9 ng/mL"
+  }
+]

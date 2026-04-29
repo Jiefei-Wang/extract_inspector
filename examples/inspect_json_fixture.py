@@ -9,36 +9,40 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
 
 
-texts = pd.read_json(FIXTURES / "texts.json")
-entities = pd.read_json(FIXTURES / "entities.json")
-actions = pd.read_json(FIXTURES / "actions.json")
+texts = pd.read_json(FIXTURES / "clinical_texts.json")
+patient_demo = pd.read_json(FIXTURES / "patient_demo.json")
+lab_values = pd.read_json(FIXTURES / "lab_values.json")
+diagnoses = pd.read_json(FIXTURES / "diagnoses.json")
 
 
 inspector_web(
     Corpus(texts),
     Inspector(
-        "entities",
-        entities,
-        entity_title="Entity: {extraction_id}",
-        shown_cols=["value", "entity_type", "confidence"],
-        highlight_cols=["evidence", "alternate_evidence"],
-        highlight_span_start_cols=["span_start"],
-        highlight_span_end_cols=["span_end"],
-        highlight_relations={
-            "evidence": "value",
-            "alternate_evidence": "value",
-            "span_start:span_end": "value",
-        },
-        filter_cols=[{"entity_type": "dropdown"}, {"confidence": "button"}],
+        "patient_demo",
+        patient_demo,
+        entity_title="Patient: {extraction_id}",
+        shown_cols=["field", "value", "confidence"],
+        highlight_cols=["evidence"],
+        highlight_relations={"evidence": "value"},
+        filter_cols=[{"field": "dropdown"}, {"confidence": "button"}],
     ),
     Inspector(
-        "actions",
-        actions,
-        entity_title="Action: {extraction_id}",
-        shown_cols=["action", "owner", "confidence"],
+        "lab_values",
+        lab_values,
+        entity_title="Lab: {test_name}",
+        shown_cols=["test_name", "value", "unit", "flag"],
         highlight_cols=["evidence"],
-        highlight_relations={"evidence": "action"},
-        filter_cols=[{"owner": "dropdown"}, {"confidence": "button"}],
+        highlight_relations={"evidence": ["test_name", "value"]},
+        filter_cols=[{"test_name": "dropdown"}, {"flag": "button"}],
     ),
-    filter_cols=[{"text_id": "multitext"}, {"subject_id": "multitext"}],
+    Inspector(
+        "diagnoses",
+        diagnoses,
+        entity_title="Diagnosis: {diagnosis}",
+        shown_cols=["diagnosis", "status", "confidence"],
+        highlight_cols=["evidence"],
+        highlight_relations={"evidence": "diagnosis"},
+        filter_cols=[{"status": "dropdown"}, {"confidence": "button"}],
+    ),
+    filter_cols=[{"text_id": "multitext"}, {"patient_id": "multitext"}],
 )

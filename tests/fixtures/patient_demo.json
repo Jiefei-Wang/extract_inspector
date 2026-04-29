@@ -1,0 +1,34 @@
+[
+  {
+    "extraction_id": "demo-001",
+    "text_id": "note-001",
+    "field": "age",
+    "value": "62",
+    "evidence": "62-year-old",
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "demo-002",
+    "text_id": "note-001",
+    "field": "sex",
+    "value": "female",
+    "evidence": "female",
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "demo-003",
+    "text_id": "note-002",
+    "field": "age",
+    "value": "47",
+    "evidence": "47-year-old",
+    "confidence": "high"
+  },
+  {
+    "extraction_id": "demo-004",
+    "text_id": "note-002",
+    "field": "sex",
+    "value": "male",
+    "evidence": "male",
+    "confidence": "high"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "extraction_id": "dx-001",
+    "text_id": "note-001",
+    "diagnosis": "type 2 diabetes mellitus",
+    "status": "active",
+    "confidence": "high",
+    "evidence": "Type 2 diabetes mellitus remains uncontrolled"
+  },
+  {
+    "extraction_id": "dx-002",
+    "text_id": "note-001",
+    "diagnosis": "chronic kidney disease stage 3",
+    "status": "active",
+    "confidence": "medium",
+    "evidence": "CKD stage 3"
+  },
+  {
+    "extraction_id": "dx-003",
+    "text_id": "note-002",
+    "diagnosis": "iron deficiency anemia",
+    "status": "active",
+    "confidence": "high",
+    "evidence": "findings are consistent with iron deficiency anemia"
+  }
+]

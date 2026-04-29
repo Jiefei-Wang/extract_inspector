@@ -1,0 +1,12 @@
+[
+  {
+    "text_id": "note-001",
+    "patient_id": "patient-001",
+    "text": "Clinic note: 62-year-old female with fatigue and increased thirst. A1c 8.2%, creatinine 1.4 mg/dL. Type 2 diabetes mellitus remains uncontrolled; CKD stage 3 is noted in the assessment."
+  },
+  {
+    "text_id": "note-002",
+    "patient_id": "patient-002",
+    "text": "Clinic note: 47-year-old male reports dyspnea on exertion. Labs show hemoglobin 10.1 g/dL and ferritin 9 ng/mL. The findings are consistent with iron deficiency anemia."
+  }
+]

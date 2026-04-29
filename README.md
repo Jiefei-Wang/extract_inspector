@@ -29,21 +29,21 @@ from extract_inspector.inspect import Corpus, Inspector, inspector_web
 texts = pd.DataFrame(
     [
         {
-            "text_id": "text-001",
-            "subject_id": "subject-a",
-            "text": "The user cannot log in after password reset.",
+            "text_id": "note-001",
+            "patient_id": "patient-001",
+            "text": "Clinic note: 62-year-old female. A1c 8.2%. Type 2 diabetes mellitus is uncontrolled.",
         }
     ]
 )
 
-entities = pd.DataFrame(
+diagnoses = pd.DataFrame(
     [
         {
-            "text_id": "text-001",
-            "extraction_id": "entity-001",
-            "evidence": "cannot log in",
+            "text_id": "note-001",
+            "extraction_id": "dx-001",
+            "diagnosis": "type 2 diabetes mellitus",
+            "evidence": "Type 2 diabetes mellitus",
             "confidence": "high",
-            "problem": "login failure",
         }
     ]
 )
@@ -51,15 +51,15 @@ entities = pd.DataFrame(
 inspector_web(
     Corpus(texts),
     Inspector(
-        "entities",
-        entities,
-        entity_title="Entity: {extraction_id}",
-        shown_cols=["problem", "confidence"],
+        "diagnoses",
+        diagnoses,
+        entity_title="Diagnosis: {extraction_id}",
+        shown_cols=["diagnosis", "confidence"],
         highlight_cols=["evidence"],
-        highlight_relations={"evidence": "problem"},
+        highlight_relations={"evidence": "diagnosis"},
         filter_cols=[{"confidence": "dropdown"}],
     ),
-    filter_cols=[{"text_id": "multitext"}, {"subject_id": "multitext"}],
+    filter_cols=[{"text_id": "multitext"}, {"patient_id": "multitext"}],
 )
 ```
 
