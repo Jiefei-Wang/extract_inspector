@@ -204,6 +204,10 @@ def test_ui_contains_relation_hover_hooks():
     assert "dataset.relatedFields" in INDEX_HTML
     assert "related-active" in INDEX_HTML
     assert "filter_blocks" in INDEX_HTML
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in INDEX_HTML
+    assert "filterToggle" in INDEX_HTML
+    assert "filtersCollapsed" in INDEX_HTML
+    assert "aria-expanded" in INDEX_HTML
     assert "multitext" in INDEX_HTML
     assert "highlight-lines" not in INDEX_HTML
     assert '<div class="field-label">Highlight</div>' not in INDEX_HTML

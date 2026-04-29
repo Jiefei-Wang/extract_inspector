@@ -57,7 +57,7 @@ INDEX_HTML = """<!doctype html>
 
     .group-bar {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
       padding: 12px;
       border-bottom: 1px solid var(--panel-border);
@@ -87,11 +87,43 @@ INDEX_HTML = """<!doctype html>
     }
 
     .filter-bar {
-      padding: 12px;
       border-bottom: 1px solid var(--panel-border);
       display: flex;
       flex-direction: column;
+    }
+
+    .filter-toggle {
+      width: 100%;
+      min-height: 38px;
+      border: 0;
+      border-bottom: 1px solid var(--panel-border);
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .filter-toggle:disabled {
+      cursor: default;
+      color: var(--muted);
+    }
+
+    .filter-toggle-icon {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .filter-content {
+      display: flex;
+      flex-direction: column;
       gap: 12px;
+      padding: 12px;
     }
 
     .filter-block {
@@ -292,7 +324,11 @@ INDEX_HTML = """<!doctype html>
     <aside class="panel">
       <div class="group-bar" id="groupBar"></div>
       <div class="filter-bar">
-        <div id="filterBlocks"></div>
+        <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="true" aria-controls="filterBlocks">
+          <span id="filterToggleLabel">Filters</span>
+          <span class="filter-toggle-icon" id="filterToggleIcon">v</span>
+        </button>
+        <div class="filter-content" id="filterBlocks"></div>
       </div>
       <div class="text-list" id="textList"></div>
     </aside>
@@ -317,6 +353,7 @@ INDEX_HTML = """<!doctype html>
       hoveredItemId: null,
       hoveredFieldKeys: [],
       filtersByScope: {},
+      filtersCollapsed: false,
       offset: 0,
       total: 0,
       hasMore: false,
@@ -328,6 +365,7 @@ INDEX_HTML = """<!doctype html>
     async function loadData() {
       const data = await fetchJson('/api/groups', 'Failed to load extraction groups from server');
       state.groups = data.groups || [];
+      bindFilterToggle();
       initializeSelection();
       await loadTexts(true);
     }
@@ -358,6 +396,15 @@ INDEX_HTML = """<!doctype html>
     function getActiveText() {
       if (!state.activeTextId) return null;
       return state.texts.find((text) => text.text_id === state.activeTextId) || null;
+    }
+
+    function bindFilterToggle() {
+      const toggle = document.getElementById('filterToggle');
+      toggle.addEventListener('click', () => {
+        if (toggle.disabled) return;
+        state.filtersCollapsed = !state.filtersCollapsed;
+        renderFilterBlocks();
+      });
     }
 
     function buildTextsUrl() {
@@ -460,10 +507,22 @@ INDEX_HTML = """<!doctype html>
 
     function renderFilterBlocks() {
       const container = document.getElementById('filterBlocks');
+      const toggle = document.getElementById('filterToggle');
+      const toggleLabel = document.getElementById('filterToggleLabel');
+      const toggleIcon = document.getElementById('filterToggleIcon');
       const group = getActiveGroup();
       const blocks = group ? (group.filter_blocks || []) : [];
       container.innerHTML = '';
-      container.classList.toggle('hidden', blocks.length === 0);
+      const hasFilters = blocks.length > 0;
+      const activeCount = countActiveFilters();
+      toggle.disabled = !hasFilters;
+      toggleLabel.textContent = activeCount ? `Filters (${activeCount})` : 'Filters';
+      toggle.setAttribute('aria-expanded', String(hasFilters && !state.filtersCollapsed));
+      toggleIcon.textContent = state.filtersCollapsed ? '>' : 'v';
+      container.classList.toggle('hidden', !hasFilters || state.filtersCollapsed);
+      if (!hasFilters || state.filtersCollapsed) {
+        return;
+      }
 
       for (const block of blocks) {
         const wrapper = document.createElement('div');
@@ -474,6 +533,14 @@ INDEX_HTML = """<!doctype html>
         }
         container.appendChild(wrapper);
       }
+    }
+
+    function countActiveFilters() {
+      let total = 0;
+      for (const filters of Object.values(state.filtersByScope)) {
+        total += Object.keys(filters || {}).length;
+      }
+      return total;
     }
 
     function renderFilterControl(scope, filter) {
