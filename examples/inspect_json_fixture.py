@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from extract_inspector.inspect import Inspector, inspector_web
+from extract_inspector.inspect import Corpus, Inspector, inspector_web
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +15,7 @@ actions = pd.read_json(FIXTURES / "actions.json")
 
 
 inspector_web(
-    texts,
+    Corpus(texts),
     Inspector(
         "entities",
         entities,
@@ -29,7 +29,7 @@ inspector_web(
             "alternate_evidence": "value",
             "span_start:span_end": "value",
         },
-        filter_cols=["entity_type", "confidence"],
+        filter_cols=[{"entity_type": "dropdown"}, {"confidence": "button"}],
     ),
     Inspector(
         "actions",
@@ -38,6 +38,7 @@ inspector_web(
         shown_cols=["action", "owner", "confidence"],
         highlight_cols=["evidence"],
         highlight_relations={"evidence": "action"},
-        filter_cols=["owner", "confidence"],
+        filter_cols=[{"owner": "dropdown"}, {"confidence": "button"}],
     ),
+    filter_cols=[{"text_id": "multitext"}, {"subject_id": "multitext"}],
 )

@@ -23,7 +23,7 @@ pip install -e ".[test]"
 ```python
 import pandas as pd
 
-from extract_inspector.inspect import Inspector, inspector_web
+from extract_inspector.inspect import Corpus, Inspector, inspector_web
 
 
 texts = pd.DataFrame(
@@ -49,7 +49,7 @@ entities = pd.DataFrame(
 )
 
 inspector_web(
-    texts,
+    Corpus(texts),
     Inspector(
         "entities",
         entities,
@@ -57,8 +57,9 @@ inspector_web(
         shown_cols=["problem", "confidence"],
         highlight_cols=["evidence"],
         highlight_relations={"evidence": "problem"},
-        filter_cols=["confidence"],
+        filter_cols=[{"confidence": "dropdown"}],
     ),
+    filter_cols=[{"text_id": "multitext"}, {"subject_id": "multitext"}],
 )
 ```
 
@@ -74,7 +75,7 @@ Pass one `Inspector` per extraction table:
 
 ```python
 inspector_web(
-    texts,
+    Corpus(texts),
     Inspector("entities", entities_df, shown_cols=["value"], highlight_cols=["evidence"]),
     Inspector("actions", actions_df, shown_cols=["action"], highlight_cols=["evidence"]),
 )
@@ -82,11 +83,39 @@ inspector_web(
 
 The UI includes an `All` tab plus one tab per inspector. `All` combines matching items from every inspector for each source text.
 
+## Filters
+
+Shared filters belong to `inspector_web(..., filter_cols=...)` and apply to the source text rows. Inspector filters belong to each `Inspector` and apply to extracted items.
+
+```python
+inspector_web(
+    Corpus(texts),
+    Inspector("entities", entities_df, filter_cols=[{"confidence": "button"}]),
+    filter_cols=[{"text_id": "multitext"}, {"subject_id": "multitext"}],
+)
+```
+
+Filter methods are:
+
+- `dropdown`: choose one exact value.
+- `textbox`: literal contains search.
+- `multitext`: comma-separated exact values.
+- `button`: choose one exact value from buttons.
+
+Plain string filters infer a method from the column values.
+
 ## Highlights And Relations
 
 `highlight_cols` may contain columns whose cells are strings or lists of strings:
 
 ```python
+Corpus(
+    texts,
+    text_id_col="text_id",
+    text_col="text",
+    text_title="Text: {text_id}",
+)
+
 Inspector(
     "entities",
     entities_df,
@@ -135,12 +164,9 @@ Inspector(
 )
 
 inspector_web(
-    texts,
+    corpus,
     *inspectors,
-    text_id_col="text_id",
-    text_col="text",
-    subject_id_col="subject_id",
-    text_title="Text: {text_id}",
+    filter_cols=None,
     host="127.0.0.1",
     port=5001,
     debug=False,

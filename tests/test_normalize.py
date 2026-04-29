@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from extract_inspector.inspect import Inspector
+from extract_inspector.inspect import Corpus, Inspector
 from extract_inspector.inspect.normalize import normalize_dataset
 
 
@@ -16,6 +16,12 @@ def texts_df():
 
 
 def test_inspector_requires_valid_dataframe_and_text_id_column():
+    with pytest.raises(TypeError, match="texts must be a pandas DataFrame"):
+        Corpus(texts=[])
+
+    with pytest.raises(ValueError, match="missing required column"):
+        Corpus(pd.DataFrame([{"id": "t1", "text": "Alpha"}]), text_id_col="text_id")
+
     with pytest.raises(TypeError, match="entities must be a pandas DataFrame"):
         Inspector("entities", entities=[])
 
@@ -43,6 +49,27 @@ def test_inspector_normalizes_column_options_and_relations():
     assert inspector.filter_cols == ["confidence"]
 
 
+def test_filter_specs_support_explicit_methods_and_inference():
+    extractions = pd.DataFrame(
+        [
+            {"text_id": "t1", "confidence": "high", "reviewed": True, "note_id": "n1"},
+            {"text_id": "t2", "confidence": "low", "reviewed": False, "note_id": "n2"},
+        ]
+    )
+
+    dataset = normalize_dataset(
+        Corpus(texts_df()),
+        [Inspector("entities", extractions, filter_cols=["reviewed", {"confidence": "dropdown"}, "note_id"])],
+    )
+
+    filters = dataset.groups["entities"].filter_blocks[0]["filters"]
+    assert [(entry["column"], entry["method"]) for entry in filters] == [
+        ("reviewed", "button"),
+        ("confidence", "dropdown"),
+        ("note_id", "multitext"),
+    ]
+
+
 def test_inspector_rejects_mismatched_span_column_pairs():
     with pytest.raises(ValueError, match="same length"):
         Inspector(
@@ -58,7 +85,7 @@ def test_dataset_creates_all_tab_and_inspector_tabs():
     actions = pd.DataFrame([{"extraction_id": "a1", "text_id": "t1", "action": "review", "evidence": "beta"}])
 
     dataset = normalize_dataset(
-        texts_df(),
+        Corpus(texts_df()),
         [
             Inspector("entities", entities, shown_cols=["value"], highlight_cols=["evidence"]),
             Inspector("actions", actions, shown_cols=["action"], highlight_cols=["evidence"]),
@@ -86,7 +113,7 @@ def test_shown_cols_entity_title_and_highlight_metadata_are_normalized():
     )
 
     dataset = normalize_dataset(
-        texts_df(),
+        Corpus(texts_df()),
         [
             Inspector(
                 "entities",
@@ -114,7 +141,7 @@ def test_span_pairs_produce_related_highlight_spans():
     extractions = pd.DataFrame([{"text_id": "t1", "value": "beta", "span_start": 6, "span_end": 10}])
 
     dataset = normalize_dataset(
-        texts_df(),
+        Corpus(texts_df()),
         [
             Inspector(
                 "entities",
@@ -153,7 +180,7 @@ def test_invalid_span_offsets_are_ignored_with_warnings(row):
     )
 
     with pytest.warns(UserWarning):
-        dataset = normalize_dataset(texts_df(), [inspector])
+        dataset = normalize_dataset(Corpus(texts_df()), [inspector])
 
     assert dataset.groups["entities"].texts["t1"].items[0].spans == []
 
@@ -166,7 +193,7 @@ def test_array_field_values_do_not_break_field_filtering():
         ]
     )
 
-    dataset = normalize_dataset(texts_df(), [Inspector("entities", extractions, shown_cols=["values"])])
+    dataset = normalize_dataset(Corpus(texts_df()), [Inspector("entities", extractions, shown_cols=["values"])])
 
     fields_by_item = [
         {field.label: field.value for field in item.fields}
@@ -181,6 +208,6 @@ def test_missing_required_rows_warn_and_skip():
     extractions = pd.DataFrame([{"text_id": "", "value": "x"}, {"text_id": "t1", "value": "y"}])
 
     with pytest.warns(UserWarning, match="missing required value"):
-        dataset = normalize_dataset(texts, [Inspector("entities", extractions, shown_cols=["value"])])
+        dataset = normalize_dataset(Corpus(texts), [Inspector("entities", extractions, shown_cols=["value"])])
 
     assert list(dataset.groups["entities"].texts) == ["t1"]

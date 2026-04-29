@@ -5,11 +5,10 @@ import webbrowser
 from threading import Timer
 from typing import Any
 
-import pandas as pd
 from flask import Flask, Response, jsonify, request
 
 from extract_inspector.inspect.matching import build_highlights
-from extract_inspector.inspect.models import ExtractionItem, Field, Highlight, Inspector, InspectorDataset, Span, TextDocument
+from extract_inspector.inspect.models import Corpus, ExtractionItem, Field, Highlight, Inspector, InspectorDataset, Span, TextDocument
 from extract_inspector.inspect.normalize import normalize_dataset
 from extract_inspector.inspect.ui import INDEX_HTML
 
@@ -25,13 +24,6 @@ def clean_json_value(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [clean_json_value(entry) for entry in value]
     return str(value)
-
-
-def parse_ids(ids: str | None) -> set[str] | None:
-    if not ids:
-        return None
-    parsed = {entry.strip() for entry in ids.split(",") if entry.strip()}
-    return parsed or None
 
 
 def parse_int(value: str | None, default: int, minimum: int, maximum: int | None = None) -> int:
@@ -91,7 +83,6 @@ def document_to_dict(document: TextDocument, items: list[ExtractionItem]) -> dic
 
     return {
         "text_id": document.text_id,
-        "subject_id": document.subject_id,
         "title": document.title,
         "text": document.text,
         "highlighted_html": highlighted_html,
@@ -99,7 +90,7 @@ def document_to_dict(document: TextDocument, items: list[ExtractionItem]) -> dic
     }
 
 
-def parse_categorical_filters(filters_json: str | None) -> dict[str, str]:
+def parse_filters(filters_json: str | None) -> dict[str, dict[str, str]]:
     if not filters_json:
         return {}
     try:
@@ -109,28 +100,72 @@ def parse_categorical_filters(filters_json: str | None) -> dict[str, str]:
     if not isinstance(parsed, dict):
         return {}
     filters = {}
-    for key, value in parsed.items():
-        if isinstance(key, str) and isinstance(value, str) and value and value != "all":
-            filters[key] = value
+    for scope, values in parsed.items():
+        if not isinstance(scope, str) or not isinstance(values, dict):
+            continue
+        scope_filters = {}
+        for column, value in values.items():
+            if isinstance(column, str) and isinstance(value, str) and value and value != "all":
+                scope_filters[column] = value
+        if scope_filters:
+            filters[scope] = scope_filters
     return filters
 
 
-def filter_document_items(document: TextDocument, categorical_filters: dict[str, str]) -> list[ExtractionItem]:
-    if not categorical_filters:
+def split_multitext(value: str) -> set[str]:
+    return {entry.strip() for entry in value.split(",") if entry.strip()}
+
+
+def matches_filter(value: str | None, query: str, method: str) -> bool:
+    if value is None:
+        return False
+    if method == "textbox":
+        return query.casefold() in value.casefold()
+    if method == "multitext":
+        return value in split_multitext(query)
+    return value == query
+
+
+def active_filter_specs(group_data, scope: str) -> dict[str, str]:
+    for block in group_data.filter_blocks:
+        if block["scope"] != scope:
+            continue
+        return {filter_spec["column"]: filter_spec["method"] for filter_spec in block["filters"]}
+    return {}
+
+
+def matches_filter_scope(values: dict[str, str], filters: dict[str, str], methods: dict[str, str]) -> bool:
+    return all(matches_filter(values.get(column), query, methods.get(column, "dropdown")) for column, query in filters.items())
+
+
+def filter_document_items(group_data, document: TextDocument, filters_by_scope: dict[str, dict[str, str]]) -> list[ExtractionItem]:
+    common_filters = filters_by_scope.get("common", {})
+    if common_filters and not matches_filter_scope(
+        document.filter_values,
+        common_filters,
+        active_filter_specs(group_data, "common"),
+    ):
+        return []
+
+    if not filters_by_scope:
         return list(document.items)
-    return [
-        item
-        for item in document.items
-        if all(item.filter_values.get(column) == value for column, value in categorical_filters.items())
-    ]
+    filtered_items = []
+    for item in document.items:
+        item_filters = filters_by_scope.get(item.tag, {})
+        if item_filters and not matches_filter_scope(
+            item.filter_values,
+            item_filters,
+            active_filter_specs(group_data, item.tag),
+        ):
+            continue
+        filtered_items.append(item)
+    return filtered_items
 
 
 def filter_texts_page(
     dataset: InspectorDataset,
     group_key: str,
-    categorical_filters: dict[str, str],
-    text_ids: set[str] | None,
-    subject_ids: set[str] | None,
+    filters_by_scope: dict[str, dict[str, str]],
     offset: int,
     limit: int,
 ) -> tuple[list[dict], int]:
@@ -139,14 +174,9 @@ def filter_texts_page(
     total = 0
 
     for current_text_id in group_data.text_ids:
-        if text_ids is not None and current_text_id not in text_ids:
-            continue
-
         document = group_data.texts[current_text_id]
-        if subject_ids is not None and document.subject_id not in subject_ids:
-            continue
 
-        items = filter_document_items(document, categorical_filters)
+        items = filter_document_items(group_data, document, filters_by_scope)
         if not items:
             continue
 
@@ -157,27 +187,6 @@ def filter_texts_page(
         total += 1
 
     return page, total
-
-
-def group_filter_definitions(dataset: InspectorDataset, group_key: str) -> list[dict]:
-    group = dataset.groups[group_key]
-    values_by_column = {column: set() for column in group.filter_cols}
-    for document in group.texts.values():
-        for item in document.items:
-            for column in group.filter_cols:
-                value = item.filter_values.get(column)
-                if value not in (None, ""):
-                    values_by_column[column].add(value)
-
-    return [
-        {
-            "column": column,
-            "label": column.replace("_", " ").title(),
-            "values": sorted(values),
-        }
-        for column, values in values_by_column.items()
-        if values
-    ]
 
 
 def create_app(dataset: InspectorDataset) -> Flask:
@@ -194,16 +203,11 @@ def create_app(dataset: InspectorDataset) -> Flask:
                 "key": group_key,
                 "label": group_data.label,
                 "total": len(group_data.text_ids),
-                "filters": group_filter_definitions(dataset, group_key),
+                "filter_blocks": group_data.filter_blocks,
             }
             for group_key, group_data in dataset.groups.items()
         ]
-        return jsonify(
-            {
-                "groups": groups,
-                "has_subject_id": dataset.has_subject_id,
-            }
-        )
+        return jsonify({"groups": groups})
 
     @app.get("/api/texts")
     def api_texts():
@@ -213,16 +217,12 @@ def create_app(dataset: InspectorDataset) -> Flask:
 
         offset = parse_int(request.args.get("offset"), 0, 0)
         limit = parse_int(request.args.get("limit"), DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT)
-        text_ids = parse_ids(request.args.get("text_ids"))
-        subject_ids = parse_ids(request.args.get("subject_ids"))
-        categorical_filters = parse_categorical_filters(request.args.get("filters"))
+        filters_by_scope = parse_filters(request.args.get("filters"))
 
         page, total = filter_texts_page(
             dataset,
             group_key,
-            categorical_filters,
-            text_ids,
-            subject_ids,
+            filters_by_scope,
             offset,
             limit,
         )
@@ -241,24 +241,18 @@ def create_app(dataset: InspectorDataset) -> Flask:
 
 
 def inspector_web(
-    texts: pd.DataFrame,
+    corpus: Corpus,
     *inspectors: Inspector,
-    text_id_col: str = "text_id",
-    text_col: str = "text",
-    subject_id_col: str | None = "subject_id",
-    text_title: str = "Text: {text_id}",
+    filter_cols=None,
     host: str = "127.0.0.1",
     port: int = 5001,
     debug: bool = False,
     open_browser: bool = True,
 ):
     dataset = normalize_dataset(
-        texts,
+        corpus,
         inspectors,
-        text_id_col=text_id_col,
-        text_col=text_col,
-        subject_id_col=subject_id_col,
-        text_title=text_title,
+        filter_cols=filter_cols,
     )
     app = create_app(dataset)
     url = f"http://{host}:{port}"

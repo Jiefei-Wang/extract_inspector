@@ -9,8 +9,11 @@ import warnings
 import pandas as pd
 
 from extract_inspector.inspect.models import (
+    Corpus,
     ExtractionItem,
     Field,
+    FilterInput,
+    FilterSpec,
     GroupData,
     Highlight,
     Inspector,
@@ -129,15 +132,78 @@ def normalize_filter_value(value: Any) -> str | None:
     return None
 
 
-def collect_filter_values(row: Mapping[str, Any], filter_columns: list[str]) -> dict[str, str]:
+def collect_filter_values(row: Mapping[str, Any], filter_specs: list[FilterSpec]) -> dict[str, str]:
     values = OrderedDict()
-    for column in filter_columns:
+    for spec in filter_specs:
+        column = spec.column
         if column not in row:
             continue
         value = normalize_filter_value(row[column])
         if value is not None:
             values[column] = value
     return dict(values)
+
+
+def normalize_filter_spec_inputs(
+    filter_cols: FilterInput | list[FilterInput] | tuple[FilterInput, ...] | None,
+) -> list[tuple[str, str | None]]:
+    if isinstance(filter_cols, (str, dict)):
+        filter_cols = [filter_cols]
+    specs = []
+    for entry in filter_cols or []:
+        if isinstance(entry, str):
+            specs.append((entry, None))
+            continue
+        if not isinstance(entry, dict) or len(entry) != 1:
+            raise TypeError("filter_cols entries must be strings or one-key dictionaries.")
+        column, method = next(iter(entry.items()))
+        if not isinstance(column, str) or not isinstance(method, str):
+            raise TypeError("filter_cols dictionary entries must map a string column to a string method.")
+        specs.append((column, method))
+    return specs
+
+
+def infer_filter_method(frame: pd.DataFrame, column: str) -> str:
+    if column not in frame.columns:
+        return "multitext"
+    series = frame[column].dropna()
+    if series.empty:
+        return "dropdown"
+    if series.map(lambda value: isinstance(value, bool)).all():
+        return "button"
+    normalized = [normalize_filter_value(value) for value in series.tolist()]
+    values = [value for value in normalized if value is not None]
+    if not values:
+        return "dropdown"
+    unique_count = len(set(values))
+    id_like = column == "id" or column.endswith("_id") or column.endswith("id")
+    if not id_like and unique_count <= 12:
+        return "dropdown"
+    return "multitext"
+
+
+def normalize_filter_specs(
+    filter_cols: list[FilterInput] | tuple[FilterInput, ...] | None,
+    frame: pd.DataFrame,
+) -> list[FilterSpec]:
+    specs = []
+    seen = set()
+    for column, configured_method in normalize_filter_spec_inputs(filter_cols):
+        if column in seen:
+            continue
+        method = configured_method or infer_filter_method(frame, column)
+        specs.append(FilterSpec(column=column, method=method, label=labelize(column)))
+        seen.add(column)
+    return specs
+
+
+def filter_spec_to_dict(spec: FilterSpec, values: list[str] | None = None) -> dict:
+    return {
+        "column": spec.column,
+        "label": spec.label,
+        "method": spec.method,
+        "values": values or [],
+    }
 
 
 def format_template(template: str, row: Mapping[str, Any], fallback: str) -> str:
@@ -244,9 +310,9 @@ def collect_spans(row: Mapping[str, Any], text: str, inspector: Inspector, item_
 def clone_document(document: TextDocument) -> TextDocument:
     return TextDocument(
         text_id=document.text_id,
-        subject_id=document.subject_id,
         text=document.text,
         title=document.title,
+        filter_values=dict(document.filter_values),
     )
 
 
@@ -257,26 +323,30 @@ def append_item(group_documents: OrderedDict[str, TextDocument], source_document
 
 
 def normalize_dataset(
-    texts: pd.DataFrame,
+    corpus: Corpus,
     inspectors: list[Inspector] | tuple[Inspector, ...],
     *,
-    text_id_col: str = "text_id",
-    text_col: str = "text",
-    subject_id_col: str | None = "subject_id",
-    text_title: str = "Text: {text_id}",
+    filter_cols: FilterInput | list[FilterInput] | tuple[FilterInput, ...] | None = None,
 ) -> InspectorDataset:
+    if not isinstance(corpus, Corpus):
+        raise TypeError("corpus must be a Corpus instance.")
     if not inspectors:
         raise ValueError("At least one Inspector is required.")
     if not all(isinstance(inspector, Inspector) for inspector in inspectors):
         raise TypeError("inspectors must contain only Inspector instances.")
 
-    text_rows = normalize_frame(texts, "texts")
-    if text_id_col not in texts.columns:
-        raise ValueError(f"texts is missing required column {text_id_col!r}.")
-    if text_col not in texts.columns:
-        raise ValueError(f"texts is missing required column {text_col!r}.")
+    texts = corpus.texts
+    text_id_col = corpus.text_id_col
+    text_col = corpus.text_col
+    text_title = corpus.text_title
+    common_filter_specs = normalize_filter_specs(filter_cols, texts)
+    inspector_filter_specs = {
+        inspector.tag_name: normalize_filter_specs(inspector.filter_cols or [], inspector.entities)
+        for inspector in inspectors
+    }
 
-    has_subject_id = bool(subject_id_col and subject_id_col in texts.columns)
+    text_rows = normalize_frame(texts, "texts")
+
     text_lookup: OrderedDict[str, TextDocument] = OrderedDict()
     for row_index, row in enumerate(text_rows):
         text_id_value = row.get(text_id_col)
@@ -289,14 +359,13 @@ def normalize_dataset(
             continue
 
         current_text_id = normalize_id(text_id_value)
-        subject_value = row.get(subject_id_col) if has_subject_id else None
         title_context = dict(row)
         title_context["text_id"] = current_text_id
         text_lookup[current_text_id] = TextDocument(
             text_id=current_text_id,
-            subject_id=normalize_id(subject_value) if subject_value is not None else None,
             text=str(current_text),
             title=format_template(text_title, title_context, f"Text: {current_text_id}"),
+            filter_values=collect_filter_values(row, common_filter_specs),
         )
 
     all_documents: OrderedDict[str, TextDocument] = OrderedDict()
@@ -332,24 +401,62 @@ def normalize_dataset(
                 fields=build_fields(row, inspector.shown_cols or []),
                 highlights=collect_highlights(row, inspector),
                 spans=collect_spans(row, source_document.text, inspector, item_id),
-                filter_values=collect_filter_values(row, inspector.filter_cols or []),
+                filter_values=collect_filter_values(row, inspector_filter_specs[inspector.tag_name]),
             )
             append_item(all_documents, source_document, item)
             append_item(documents_by_tag[inspector.tag_name], source_document, item)
 
     groups: OrderedDict[str, GroupData] = OrderedDict()
-    all_filter_cols = []
-    for inspector in inspectors:
-        for column in inspector.filter_cols or []:
-            if column not in all_filter_cols:
-                all_filter_cols.append(column)
+    common_filter_columns = {spec.column for spec in common_filter_specs}
+
+    def block_for(scope: str, label: str, specs: list[FilterSpec], documents: Mapping[str, TextDocument]) -> dict | None:
+        values_by_column = {spec.column: set() for spec in specs if spec.method in {"dropdown", "button"}}
+        for document in documents.values():
+            if scope == "common":
+                source_values = document.filter_values
+                for spec in specs:
+                    value = source_values.get(spec.column)
+                    if spec.column in values_by_column and value not in (None, ""):
+                        values_by_column[spec.column].add(value)
+                continue
+            for item in document.items:
+                if item.tag != scope:
+                    continue
+                for spec in specs:
+                    value = item.filter_values.get(spec.column)
+                    if spec.column in values_by_column and value not in (None, ""):
+                        values_by_column[spec.column].add(value)
+        filters = [
+            filter_spec_to_dict(spec, sorted(values_by_column.get(spec.column, set())))
+            for spec in specs
+        ]
+        if not filters:
+            return None
+        return {"scope": scope, "label": label, "filters": filters}
+
+    def blocks_for(group_key: str, documents: Mapping[str, TextDocument]) -> list[dict]:
+        blocks = []
+        common_block = block_for("common", "Common", common_filter_specs, documents)
+        if common_block:
+            blocks.append(common_block)
+        active_inspectors = inspectors if group_key == "all" else [inspector for inspector in inspectors if inspector.tag_name == group_key]
+        for inspector in active_inspectors:
+            specs = [
+                spec
+                for spec in inspector_filter_specs[inspector.tag_name]
+                if spec.column not in common_filter_columns
+            ]
+            inspector_block = block_for(inspector.tag_name, labelize(inspector.tag_name), specs, documents)
+            if inspector_block:
+                blocks.append(inspector_block)
+        return blocks
 
     groups["all"] = GroupData(
         key="all",
         label="All",
         text_ids=list(all_documents.keys()),
         texts=dict(all_documents),
-        filter_cols=all_filter_cols,
+        filter_blocks=blocks_for("all", all_documents),
     )
     for inspector in inspectors:
         documents = documents_by_tag[inspector.tag_name]
@@ -358,7 +465,7 @@ def normalize_dataset(
             label=labelize(inspector.tag_name),
             text_ids=list(documents.keys()),
             texts=dict(documents),
-            filter_cols=list(inspector.filter_cols or []),
+            filter_blocks=blocks_for(inspector.tag_name, documents),
         )
 
-    return InspectorDataset(groups=dict(groups), has_subject_id=has_subject_id)
+    return InspectorDataset(groups=dict(groups))

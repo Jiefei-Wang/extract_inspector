@@ -91,7 +91,19 @@ INDEX_HTML = """<!doctype html>
       border-bottom: 1px solid var(--panel-border);
       display: flex;
       flex-direction: column;
+      gap: 12px;
+    }
+
+    .filter-block {
+      display: flex;
+      flex-direction: column;
       gap: 6px;
+    }
+
+    .filter-block-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
     }
 
     .filter-label {
@@ -109,6 +121,30 @@ INDEX_HTML = """<!doctype html>
       color: var(--text);
       padding: 0 10px;
       font-size: 13px;
+    }
+
+    .button-filter {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .filter-pill {
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .filter-pill.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: #115e59;
     }
 
     .text-list {
@@ -256,13 +292,7 @@ INDEX_HTML = """<!doctype html>
     <aside class="panel">
       <div class="group-bar" id="groupBar"></div>
       <div class="filter-bar">
-        <div id="categoricalFilters"></div>
-        <label class="filter-label" for="textIdFilter">Text ID</label>
-        <input class="filter-control" id="textIdFilter" type="text" placeholder="text-001,text-002">
-        <div id="subjectFilterBlock">
-          <label class="filter-label" for="subjectIdFilter">Subject ID</label>
-          <input class="filter-control" id="subjectIdFilter" type="text" placeholder="subject-001,subject-002">
-        </div>
+        <div id="filterBlocks"></div>
       </div>
       <div class="text-list" id="textList"></div>
     </aside>
@@ -286,10 +316,7 @@ INDEX_HTML = """<!doctype html>
       activeTextId: null,
       hoveredItemId: null,
       hoveredFieldKeys: [],
-      categoricalFilters: {},
-      textIdFilter: '',
-      subjectIdFilter: '',
-      hasSubjectId: false,
+      filtersByScope: {},
       offset: 0,
       total: 0,
       hasMore: false,
@@ -301,8 +328,6 @@ INDEX_HTML = """<!doctype html>
     async function loadData() {
       const data = await fetchJson('/api/groups', 'Failed to load extraction groups from server');
       state.groups = data.groups || [];
-      state.hasSubjectId = Boolean(data.has_subject_id);
-      bindControls();
       initializeSelection();
       await loadTexts(true);
     }
@@ -319,26 +344,6 @@ INDEX_HTML = """<!doctype html>
         throw new Error((data && data.error) || message);
       }
       return data;
-    }
-
-    function bindControls() {
-      const textIdFilter = document.getElementById('textIdFilter');
-      textIdFilter.value = state.textIdFilter;
-      textIdFilter.addEventListener('input', (event) => {
-        state.textIdFilter = event.target.value;
-        state.hoveredItemId = null;
-        loadTexts(true);
-      });
-
-      const subjectBlock = document.getElementById('subjectFilterBlock');
-      subjectBlock.classList.toggle('hidden', !state.hasSubjectId);
-      const subjectIdFilter = document.getElementById('subjectIdFilter');
-      subjectIdFilter.value = state.subjectIdFilter;
-      subjectIdFilter.addEventListener('input', (event) => {
-        state.subjectIdFilter = event.target.value;
-        state.hoveredItemId = null;
-        loadTexts(true);
-      });
     }
 
     function initializeSelection() {
@@ -362,19 +367,19 @@ INDEX_HTML = """<!doctype html>
         limit: '1000',
       });
       const activeFilters = {};
-      for (const [column, value] of Object.entries(state.categoricalFilters)) {
-        if (value && value !== 'all') {
-          activeFilters[column] = value;
+      for (const [scope, filters] of Object.entries(state.filtersByScope)) {
+        const scopeFilters = {};
+        for (const [column, value] of Object.entries(filters || {})) {
+          if (value && value !== 'all') {
+            scopeFilters[column] = value;
+          }
+        }
+        if (Object.keys(scopeFilters).length > 0) {
+          activeFilters[scope] = scopeFilters;
         }
       }
       if (Object.keys(activeFilters).length > 0) {
         params.set('filters', JSON.stringify(activeFilters));
-      }
-      if (state.textIdFilter.trim()) {
-        params.set('text_ids', state.textIdFilter);
-      }
-      if (state.hasSubjectId && state.subjectIdFilter.trim()) {
-        params.set('subject_ids', state.subjectIdFilter);
       }
       return `/api/texts?${params.toString()}`;
     }
@@ -428,7 +433,7 @@ INDEX_HTML = """<!doctype html>
 
     function render() {
       renderGroups();
-      renderCategoricalFilters();
+      renderFilterBlocks();
       renderTextList();
       renderMainPanel();
       renderDetailPanel();
@@ -444,7 +449,7 @@ INDEX_HTML = """<!doctype html>
         button.textContent = `${group.label} (${group.total})`;
         button.addEventListener('click', () => {
           state.activeGroup = group.key;
-          state.categoricalFilters = {};
+          state.filtersByScope = {};
           state.hoveredItemId = null;
           state.hoveredFieldKeys = [];
           loadTexts(true);
@@ -453,35 +458,80 @@ INDEX_HTML = """<!doctype html>
       }
     }
 
-    function renderCategoricalFilters() {
-      const container = document.getElementById('categoricalFilters');
+    function renderFilterBlocks() {
+      const container = document.getElementById('filterBlocks');
       const group = getActiveGroup();
-      const filters = group ? (group.filters || []) : [];
+      const blocks = group ? (group.filter_blocks || []) : [];
       container.innerHTML = '';
-      container.classList.toggle('hidden', filters.length === 0);
+      container.classList.toggle('hidden', blocks.length === 0);
 
-      for (const filter of filters) {
-        const id = `filter-${filter.column}`;
+      for (const block of blocks) {
         const wrapper = document.createElement('div');
+        wrapper.className = 'filter-block';
+        wrapper.innerHTML = `<div class="filter-block-title">${escapeHtml(block.label)}</div>`;
+        for (const filter of block.filters || []) {
+          wrapper.appendChild(renderFilterControl(block.scope, filter));
+        }
+        container.appendChild(wrapper);
+      }
+    }
+
+    function renderFilterControl(scope, filter) {
+      const id = `filter-${scope}-${filter.column}`;
+      const value = getFilterValue(scope, filter.column);
+      const wrapper = document.createElement('div');
+      if (filter.method === 'dropdown') {
         wrapper.innerHTML = `
           <label class="filter-label" for="${escapeHtml(id)}">${escapeHtml(filter.label)}</label>
           <select class="filter-control" id="${escapeHtml(id)}">
             <option value="all">All</option>
-            ${(filter.values || []).map((value) => {
-              return `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`;
-            }).join('')}
+            ${(filter.values || []).map((entry) => `<option value="${escapeHtml(entry)}">${escapeHtml(entry)}</option>`).join('')}
           </select>
         `;
         const select = wrapper.querySelector('select');
-        select.value = state.categoricalFilters[filter.column] || 'all';
-        select.addEventListener('change', (event) => {
-          state.categoricalFilters[filter.column] = event.target.value;
-          state.hoveredItemId = null;
-          state.hoveredFieldKeys = [];
-          loadTexts(true);
-        });
-        container.appendChild(wrapper);
+        select.value = value || 'all';
+        select.addEventListener('change', (event) => setFilterValue(scope, filter.column, event.target.value));
+        return wrapper;
       }
+      if (filter.method === 'button') {
+        wrapper.innerHTML = `
+          <div class="filter-label">${escapeHtml(filter.label)}</div>
+          <div class="button-filter">
+            <button class="filter-pill" type="button" data-value="all">All</button>
+            ${(filter.values || []).map((entry) => `<button class="filter-pill" type="button" data-value="${escapeHtml(entry)}">${escapeHtml(entry)}</button>`).join('')}
+          </div>
+        `;
+        wrapper.querySelectorAll('.filter-pill').forEach((button) => {
+          button.classList.toggle('active', (value || 'all') === button.dataset.value);
+          button.addEventListener('click', () => setFilterValue(scope, filter.column, button.dataset.value || 'all'));
+        });
+        return wrapper;
+      }
+      const placeholder = filter.method === 'multitext' ? 'value-1,value-2' : 'Search text';
+      wrapper.innerHTML = `
+        <label class="filter-label" for="${escapeHtml(id)}">${escapeHtml(filter.label)}</label>
+        <input class="filter-control" id="${escapeHtml(id)}" type="text" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}">
+      `;
+      const input = wrapper.querySelector('input');
+      input.addEventListener('input', (event) => setFilterValue(scope, filter.column, event.target.value));
+      return wrapper;
+    }
+
+    function getFilterValue(scope, column) {
+      return (state.filtersByScope[scope] || {})[column] || '';
+    }
+
+    function setFilterValue(scope, column, value) {
+      state.filtersByScope[scope] = Object.assign({}, state.filtersByScope[scope] || {}, { [column]: value });
+      if (!value || value === 'all') {
+        delete state.filtersByScope[scope][column];
+      }
+      if (Object.keys(state.filtersByScope[scope] || {}).length === 0) {
+        delete state.filtersByScope[scope];
+      }
+      state.hoveredItemId = null;
+      state.hoveredFieldKeys = [];
+      loadTexts(true);
     }
 
     function renderTextList() {
@@ -502,9 +552,8 @@ INDEX_HTML = """<!doctype html>
 
       for (const text of state.texts) {
         const button = document.createElement('button');
-        const subject = text.subject_id ? ` | Subject ${escapeHtml(text.subject_id)}` : '';
         button.className = 'text-button' + (text.text_id === state.activeTextId ? ' active' : '');
-        button.innerHTML = `<strong>Text ${escapeHtml(text.text_id)}${subject}</strong><br><span>${text.items.length} items</span>`;
+        button.innerHTML = `<strong>${escapeHtml(text.title)}</strong><br><span>${text.items.length} items</span>`;
         button.addEventListener('click', () => {
           state.activeTextId = text.text_id;
           state.hoveredItemId = null;
@@ -535,8 +584,7 @@ INDEX_HTML = """<!doctype html>
         return;
       }
 
-      const subject = text.subject_id ? ` | Subject ${text.subject_id}` : '';
-      mainHeader.textContent = `${text.title}${subject}`;
+      mainHeader.textContent = text.title;
       mainPanel.innerHTML = `<div class="text-view">${text.highlighted_html}</div>`;
 
       mainPanel.querySelectorAll('.text-highlight').forEach((element) => {
