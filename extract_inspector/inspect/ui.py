@@ -164,6 +164,11 @@ INDEX_HTML = """<!doctype html>
       box-shadow: inset 0 0 0 1px var(--active);
     }
 
+    .text-highlight.deep-active {
+      background: #facc15;
+      box-shadow: inset 0 0 0 1px #b45309;
+    }
+
     .item-list {
       display: flex;
       flex-direction: column;
@@ -222,10 +227,10 @@ INDEX_HTML = """<!doctype html>
       word-break: break-word;
     }
 
-    .highlight-lines {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
+    .field-row.related-active .field-label,
+    .field-row.related-active .field-value {
+      color: #92400e;
+      font-weight: 700;
     }
 
     .empty-state {
@@ -280,6 +285,7 @@ INDEX_HTML = """<!doctype html>
       activeGroup: null,
       activeTextId: null,
       hoveredItemId: null,
+      hoveredFieldKeys: [],
       categoricalFilters: {},
       textIdFilter: '',
       subjectIdFilter: '',
@@ -440,6 +446,7 @@ INDEX_HTML = """<!doctype html>
           state.activeGroup = group.key;
           state.categoricalFilters = {};
           state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
           loadTexts(true);
         });
         groupBar.appendChild(button);
@@ -470,6 +477,7 @@ INDEX_HTML = """<!doctype html>
         select.addEventListener('change', (event) => {
           state.categoricalFilters[filter.column] = event.target.value;
           state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
           loadTexts(true);
         });
         container.appendChild(wrapper);
@@ -500,6 +508,7 @@ INDEX_HTML = """<!doctype html>
         button.addEventListener('click', () => {
           state.activeTextId = text.text_id;
           state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
           render();
         });
         textList.appendChild(button);
@@ -527,17 +536,20 @@ INDEX_HTML = """<!doctype html>
       }
 
       const subject = text.subject_id ? ` | Subject ${text.subject_id}` : '';
-      mainHeader.textContent = `Text ${text.text_id}${subject}`;
+      mainHeader.textContent = `${text.title}${subject}`;
       mainPanel.innerHTML = `<div class="text-view">${text.highlighted_html}</div>`;
 
       mainPanel.querySelectorAll('.text-highlight').forEach((element) => {
         element.addEventListener('mouseenter', () => {
           const itemIds = (element.dataset.itemIds || '').split(',').filter(Boolean);
+          const relatedFields = (element.dataset.relatedFields || '').split(',').filter(Boolean);
           state.hoveredItemId = itemIds[0] || null;
+          state.hoveredFieldKeys = relatedFields;
           syncHoverState();
         });
         element.addEventListener('mouseleave', () => {
           state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
           syncHoverState();
         });
       });
@@ -563,43 +575,20 @@ INDEX_HTML = """<!doctype html>
 
       const cards = items.map((item, index) => {
         const fields = item.fields.map((field) => `
-          <div class="field-row">
+          <div class="field-row" data-item-id="${escapeHtml(item.item_id)}" data-field-key="${escapeHtml(field.key)}">
             <div class="field-label">${escapeHtml(field.label)}</div>
             <div class="field-value">${escapeHtml(String(field.value))}</div>
           </div>
         `).join('');
-        const highlightLines = [];
-        Object.entries(item.highlights_by_column || {}).forEach(([column, values]) => {
-          (values || []).forEach((value) => {
-            highlightLines.push(`(${column}) ${value}`);
-          });
-        });
-        if (highlightLines.length === 0) {
-          (item.highlights || []).forEach((value) => {
-            highlightLines.push(value);
-          });
-        }
-        (item.spans || []).forEach((span) => {
-          highlightLines.push(`(${span.start}, ${span.end}) ${span.text}`);
-        });
-        const highlights = highlightLines.length ? `
-          <div class="field-row">
-            <div class="field-label">Highlight</div>
-            <div class="field-value highlight-lines">
-              ${highlightLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}
-            </div>
-          </div>
-        ` : '';
         const matchBadge = item.has_match ? 'linked to text' : 'no exact text match';
         const unmatchedClass = item.has_match ? '' : ' unmatched';
 
         return `
           <div class="item-card${unmatchedClass}" data-item-id="${escapeHtml(item.item_id)}">
             <div class="item-title">
-              <span>${escapeHtml(`${item.summary} ${index + 1}`)}</span>
-              <span class="item-badge">${escapeHtml(matchBadge)}</span>
+              <span>${escapeHtml(item.title || `${item.tag} ${index + 1}`)}</span>
+              <span class="item-badge">${escapeHtml(item.tag)} | ${escapeHtml(matchBadge)}</span>
             </div>
-            ${highlights}
             ${fields}
           </div>
         `;
@@ -609,10 +598,24 @@ INDEX_HTML = """<!doctype html>
       detailPanel.querySelectorAll('.item-card').forEach((card) => {
         card.addEventListener('mouseenter', () => {
           state.hoveredItemId = card.dataset.itemId;
+          state.hoveredFieldKeys = [];
           syncHoverState();
         });
         card.addEventListener('mouseleave', () => {
           state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
+          syncHoverState();
+        });
+      });
+      detailPanel.querySelectorAll('.field-row[data-field-key]').forEach((row) => {
+        row.addEventListener('mouseenter', () => {
+          state.hoveredItemId = row.dataset.itemId;
+          state.hoveredFieldKeys = [`${row.dataset.itemId}::${row.dataset.fieldKey}`];
+          syncHoverState();
+        });
+        row.addEventListener('mouseleave', () => {
+          state.hoveredItemId = null;
+          state.hoveredFieldKeys = [];
           syncHoverState();
         });
       });
@@ -622,9 +625,18 @@ INDEX_HTML = """<!doctype html>
       document.querySelectorAll('.item-card').forEach((card) => {
         card.classList.toggle('active', state.hoveredItemId && card.dataset.itemId === state.hoveredItemId);
       });
+      document.querySelectorAll('.field-row[data-field-key]').forEach((row) => {
+        const fieldToken = `${row.dataset.itemId}::${row.dataset.fieldKey}`;
+        row.classList.toggle('related-active', state.hoveredFieldKeys.includes(fieldToken));
+      });
       document.querySelectorAll('.text-highlight').forEach((highlight) => {
         const itemIds = (highlight.dataset.itemIds || '').split(',').filter(Boolean);
+        const relatedFields = (highlight.dataset.relatedFields || '').split(',').filter(Boolean);
         highlight.classList.toggle('active', state.hoveredItemId && itemIds.includes(state.hoveredItemId));
+        highlight.classList.toggle(
+          'deep-active',
+          state.hoveredFieldKeys.some((fieldKey) => relatedFields.includes(fieldKey))
+        );
       });
     }
 

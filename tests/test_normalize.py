@@ -1,6 +1,8 @@
+import numpy as np
 import pandas as pd
 import pytest
 
+from extract_inspector.inspect import Inspector
 from extract_inspector.inspect.normalize import normalize_dataset
 
 
@@ -13,226 +15,121 @@ def texts_df():
     )
 
 
-def first_item(dataset, group="extractions", text_id="t1"):
-    return dataset.groups[group].texts[text_id].items[0]
+def test_inspector_requires_valid_dataframe_and_text_id_column():
+    with pytest.raises(TypeError, match="entities must be a pandas DataFrame"):
+        Inspector("entities", entities=[])
+
+    with pytest.raises(ValueError, match="missing text id column"):
+        Inspector("entities", pd.DataFrame([{"id": "t1"}]), text_id_col="text_id")
 
 
-def test_string_highlight_column():
-    extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha beta", "value": "x"}])
-
-    dataset = normalize_dataset(texts_df(), extractions)
-
-    assert first_item(dataset).highlights == ["Alpha beta"]
-
-
-def test_list_valued_highlight_cell():
-    extractions = pd.DataFrame([{"text_id": "t1", "evidence": ["Alpha", "gamma"], "value": "x"}])
-
-    dataset = normalize_dataset(texts_df(), extractions)
-
-    assert first_item(dataset).highlights == ["Alpha", "gamma"]
-
-
-def test_multiple_highlight_columns_with_string_cells():
-    extractions = pd.DataFrame(
-        [{"text_id": "t1", "evidence_a": "Alpha", "evidence_b": "gamma", "value": "x"}]
+def test_inspector_normalizes_column_options_and_relations():
+    inspector = Inspector(
+        "entities",
+        pd.DataFrame([{"text_id": "t1"}]),
+        shown_cols="value",
+        highlight_cols="evidence",
+        highlight_span_start_cols="start",
+        highlight_span_end_cols="end",
+        highlight_relations={"evidence": "value", "start:end": ["value"]},
+        filter_cols="confidence",
     )
 
-    dataset = normalize_dataset(texts_df(), extractions, highlight_col=["evidence_a", "evidence_b"])
+    assert inspector.shown_cols == ["value"]
+    assert inspector.highlight_cols == ["evidence"]
+    assert inspector.highlight_span_start_cols == ["start"]
+    assert inspector.highlight_span_end_cols == ["end"]
+    assert inspector.highlight_relations == {"evidence": ["value"], "start:end": ["value"]}
+    assert inspector.filter_cols == ["confidence"]
 
-    assert first_item(dataset).highlights == ["Alpha", "gamma"]
-    assert first_item(dataset).highlights_by_column == {
-        "evidence_a": ["Alpha"],
-        "evidence_b": ["gamma"],
-    }
+
+def test_inspector_rejects_mismatched_span_column_pairs():
+    with pytest.raises(ValueError, match="same length"):
+        Inspector(
+            "entities",
+            pd.DataFrame([{"text_id": "t1"}]),
+            highlight_span_start_cols=["start"],
+            highlight_span_end_cols=["end", "end2"],
+        )
 
 
-def test_multiple_highlight_columns_with_list_and_string_cells():
-    extractions = pd.DataFrame(
-        [{"text_id": "t1", "evidence_a": ["Alpha", "beta"], "evidence_b": "gamma", "value": "x"}]
+def test_dataset_creates_all_tab_and_inspector_tabs():
+    entities = pd.DataFrame([{"extraction_id": "e1", "text_id": "t1", "value": "Alpha", "evidence": "Alpha"}])
+    actions = pd.DataFrame([{"extraction_id": "a1", "text_id": "t1", "action": "review", "evidence": "beta"}])
+
+    dataset = normalize_dataset(
+        texts_df(),
+        [
+            Inspector("entities", entities, shown_cols=["value"], highlight_cols=["evidence"]),
+            Inspector("actions", actions, shown_cols=["action"], highlight_cols=["evidence"]),
+        ],
     )
 
-    dataset = normalize_dataset(texts_df(), extractions, highlight_col=["evidence_a", "evidence_b"])
-
-    assert first_item(dataset).highlights == ["Alpha", "beta", "gamma"]
-    assert first_item(dataset).highlights_by_column == {
-        "evidence_a": ["Alpha", "beta"],
-        "evidence_b": ["gamma"],
-    }
+    assert list(dataset.groups) == ["all", "entities", "actions"]
+    assert [item.item_id for item in dataset.groups["all"].texts["t1"].items] == ["e1", "a1"]
+    assert [item.item_id for item in dataset.groups["entities"].texts["t1"].items] == ["e1"]
+    assert [item.item_id for item in dataset.groups["actions"].texts["t1"].items] == ["a1"]
 
 
-def test_null_empty_and_non_string_highlight_values_are_ignored():
+def test_shown_cols_entity_title_and_highlight_metadata_are_normalized():
     extractions = pd.DataFrame(
         [
-            {"text_id": "t1", "evidence": None, "value": "none"},
-            {"text_id": "t1", "evidence": "", "value": "empty"},
-            {"text_id": "t1", "evidence": [], "value": "list"},
-            {"text_id": "t1", "evidence": 123, "value": "number"},
-            {"text_id": "t1", "evidence": ["Alpha", 123, ""], "value": "mixed"},
+            {
+                "extraction_id": "entity-001",
+                "text_id": "t1",
+                "value": "Alpha beta",
+                "evidence": ["Alpha", "gamma"],
+                "hidden": "not shown",
+                "confidence": "high",
+            }
         ]
     )
 
-    dataset = normalize_dataset(texts_df(), extractions)
+    dataset = normalize_dataset(
+        texts_df(),
+        [
+            Inspector(
+                "entities",
+                extractions,
+                entity_title="Entity: {extraction_id}",
+                shown_cols=["value"],
+                highlight_cols=["evidence"],
+                highlight_relations={"evidence": "value"},
+                filter_cols=["confidence"],
+            )
+        ],
+    )
 
-    assert [item.highlights for item in dataset.groups["extractions"].texts["t1"].items] == [
-        [],
-        [],
-        [],
-        [],
-        ["Alpha"],
+    item = dataset.groups["entities"].texts["t1"].items[0]
+    assert item.title == "Entity: entity-001"
+    assert [(field.key, field.value) for field in item.fields] == [("value", "Alpha beta")]
+    assert [(highlight.source, highlight.text, highlight.related_fields) for highlight in item.highlights] == [
+        ("evidence", "Alpha", ["value"]),
+        ("evidence", "gamma", ["value"]),
     ]
+    assert item.filter_values == {"confidence": "high"}
 
 
-def test_missing_optional_subject_and_extraction_id_works():
-    texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
-    extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha", "value": "x"}])
-
-    dataset = normalize_dataset(texts, extractions)
-
-    document = dataset.groups["extractions"].texts["t1"]
-    assert document.subject_id is None
-    assert dataset.has_subject_id is False
-    assert dataset.filter_categorical_cols == []
-    assert document.items[0].item_id == "extractions:t1:0"
-
-
-def test_missing_configured_optional_columns_are_ignored():
-    texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
-    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}])
+def test_span_pairs_produce_related_highlight_spans():
+    extractions = pd.DataFrame([{"text_id": "t1", "value": "beta", "span_start": 6, "span_end": 10}])
 
     dataset = normalize_dataset(
-        texts,
-        extractions,
-        subject_id="subject_id",
-        extraction_id="item_id",
-        extraction_group="category",
-        highlight_col=["evidence", "quote"],
-        span_start_col="span_start",
-        span_end_col="span_end",
-        filter_categorical_cols=["confidence"],
-    )
-
-    document = dataset.groups["extractions"].texts["t1"]
-    item = document.items[0]
-    assert document.subject_id is None
-    assert item.item_id == "extractions:t1:0"
-    assert item.highlights == []
-    assert item.highlights_by_column == {}
-    assert item.spans == []
-    assert item.filter_values == {}
-    assert {field.label: field.value for field in item.fields} == {"Value": "x"}
-
-
-@pytest.mark.parametrize("row", [{"text_id": None, "text": "Alpha."}, {"text_id": "", "text": "Alpha."}])
-def test_missing_text_id_value_warns_and_skips_row(row):
-    texts = pd.DataFrame([row, {"text_id": "t1", "text": "Beta."}])
-    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}])
-
-    with pytest.warns(UserWarning, match="Skipping texts row 0: missing required value 'text_id'"):
-        dataset = normalize_dataset(texts, extractions)
-
-    assert list(dataset.groups["extractions"].texts) == ["t1"]
-
-
-@pytest.mark.parametrize("row", [{"text_id": "t1", "text": None}, {"text_id": "t1", "text": ""}])
-def test_missing_text_value_warns_and_skips_row(row):
-    texts = pd.DataFrame([row, {"text_id": "t2", "text": "Beta."}])
-    extractions = pd.DataFrame([{"text_id": "t1", "value": "x"}, {"text_id": "t2", "value": "y"}])
-
-    with pytest.warns(UserWarning, match="Skipping texts row 0: missing required value 'text'"):
-        dataset = normalize_dataset(texts, extractions)
-
-    assert list(dataset.groups["extractions"].texts) == ["t2"]
-
-
-@pytest.mark.parametrize("row", [{"text_id": None, "value": "x"}, {"text_id": "", "value": "x"}])
-def test_missing_extraction_text_id_value_warns_and_skips_row(row):
-    texts = pd.DataFrame([{"text_id": "t1", "text": "Alpha."}])
-    extractions = pd.DataFrame([row, {"text_id": "t1", "value": "y"}])
-
-    with pytest.warns(
-        UserWarning,
-        match="Skipping extractions group 'extractions' row 0: missing required value 'text_id'",
-    ):
-        dataset = normalize_dataset(texts, extractions)
-
-    assert [item.fields[0].value for item in dataset.groups["extractions"].texts["t1"].items] == ["y"]
-
-
-def test_generated_extraction_ids_are_stable_within_run():
-    extractions = pd.DataFrame(
+        texts_df(),
         [
-            {"text_id": "t1", "evidence": "Alpha", "value": "x"},
-            {"text_id": "t1", "evidence": "gamma", "value": "y"},
-        ]
+            Inspector(
+                "entities",
+                extractions,
+                shown_cols=["value"],
+                highlight_span_start_cols=["span_start"],
+                highlight_span_end_cols=["span_end"],
+                highlight_relations={"span_start:span_end": "value"},
+            )
+        ],
     )
 
-    dataset = normalize_dataset(texts_df(), extractions)
-
-    assert [item.item_id for item in dataset.groups["extractions"].texts["t1"].items] == [
-        "extractions:t1:0",
-        "extractions:t1:1",
-    ]
-
-
-def test_dict_extractions_create_multiple_groups():
-    dataset = normalize_dataset(
-        texts_df(),
-        {
-            "diagnoses": pd.DataFrame([{"text_id": "t1", "evidence": "Alpha"}]),
-            "medications": pd.DataFrame([{"text_id": "t1", "evidence": "gamma"}]),
-        },
-    )
-
-    assert list(dataset.groups) == ["diagnoses", "medications"]
-    assert first_item(dataset, "diagnoses").summary == "Diagnoses"
-
-
-def test_extraction_group_column_splits_single_table_into_groups():
-    extractions = pd.DataFrame(
-        [
-            {"text_id": "t1", "kind": "diagnosis", "evidence": "Alpha"},
-            {"text_id": "t1", "kind": "medication", "evidence": "gamma"},
-        ]
-    )
-
-    dataset = normalize_dataset(texts_df(), extractions, extraction_group="kind")
-
-    assert list(dataset.groups) == ["diagnosis", "medication"]
-
-
-def test_scalar_span_columns_produce_one_span_and_exclude_span_fields():
-    extractions = pd.DataFrame(
-        [{"text_id": "t1", "span_start": 6, "span_end": 10, "evidence": "Alpha", "value": "x"}]
-    )
-
-    dataset = normalize_dataset(
-        texts_df(),
-        extractions,
-        span_start_col="span_start",
-        span_end_col="span_end",
-    )
-
-    item = first_item(dataset)
-    assert [(span.start, span.end, span.text) for span in item.spans] == [(6, 10, "beta")]
-    assert [field.label for field in item.fields] == ["Value"]
-
-
-def test_list_span_columns_produce_multiple_spans():
-    extractions = pd.DataFrame(
-        [{"text_id": "t1", "span_start": [0, 11], "span_end": [5, 16], "value": "x"}]
-    )
-
-    dataset = normalize_dataset(
-        texts_df(),
-        extractions,
-        span_start_col="span_start",
-        span_end_col="span_end",
-    )
-
-    assert [(span.start, span.end, span.text) for span in first_item(dataset).spans] == [
-        (0, 5, "Alpha"),
-        (11, 16, "gamma"),
+    item = dataset.groups["entities"].texts["t1"].items[0]
+    assert [(span.start, span.end, span.text, span.source, span.related_fields) for span in item.spans] == [
+        (6, 10, "beta", "span_start:span_end", ["value"])
     ]
 
 
@@ -248,74 +145,42 @@ def test_list_span_columns_produce_multiple_spans():
     ],
 )
 def test_invalid_span_offsets_are_ignored_with_warnings(row):
-    extractions = pd.DataFrame([row])
-
-    with pytest.warns(UserWarning):
-        dataset = normalize_dataset(
-            texts_df(),
-            extractions,
-            span_start_col="span_start",
-            span_end_col="span_end",
-        )
-
-    assert first_item(dataset).spans == []
-
-
-def test_only_one_configured_span_column_warns():
-    extractions = pd.DataFrame([{"text_id": "t1", "span_start": 0, "span_end": 5}])
-
-    with pytest.warns(UserWarning):
-        dataset = normalize_dataset(texts_df(), extractions, span_start_col="span_start")
-
-    assert first_item(dataset).spans == []
-
-
-def test_no_categorical_filters_by_default():
-    extractions = pd.DataFrame([{"text_id": "t1", "evidence": "Alpha", "confidence": "high"}])
-
-    dataset = normalize_dataset(texts_df(), extractions)
-
-    item = first_item(dataset)
-    assert dataset.filter_categorical_cols == []
-    assert item.filter_values == {}
-    assert {field.label: field.value for field in item.fields}["Confidence"] == "high"
-
-
-def test_configured_filter_columns_are_collected_and_still_displayed():
-    extractions = pd.DataFrame(
-        [{"text_id": "t1", "evidence": "Alpha", "entity_type": "symptom", "confidence": "high"}]
+    inspector = Inspector(
+        "entities",
+        pd.DataFrame([row]),
+        highlight_span_start_cols=["span_start"],
+        highlight_span_end_cols=["span_end"],
     )
 
-    dataset = normalize_dataset(
-        texts_df(),
-        extractions,
-        filter_categorical_cols=["entity_type", "confidence"],
-    )
+    with pytest.warns(UserWarning):
+        dataset = normalize_dataset(texts_df(), [inspector])
 
-    item = first_item(dataset)
-    assert dataset.filter_categorical_cols == ["entity_type", "confidence"]
-    assert item.filter_values == {"entity_type": "symptom", "confidence": "high"}
-    assert {field.label: field.value for field in item.fields}["Entity Type"] == "symptom"
-    assert {field.label: field.value for field in item.fields}["Confidence"] == "high"
+    assert dataset.groups["entities"].texts["t1"].items[0].spans == []
 
 
-def test_null_list_and_dict_filter_values_are_ignored():
+def test_array_field_values_do_not_break_field_filtering():
     extractions = pd.DataFrame(
         [
-            {
-                "text_id": "t1",
-                "entity_type": None,
-                "confidence": ["high"],
-                "metadata": {"source": "x"},
-                "flag": True,
-            }
+            {"text_id": "t1", "values": np.array(["a", "b"])},
+            {"text_id": "t1", "values": np.array([])},
         ]
     )
 
-    dataset = normalize_dataset(
-        texts_df(),
-        extractions,
-        filter_categorical_cols=["entity_type", "confidence", "metadata", "flag"],
-    )
+    dataset = normalize_dataset(texts_df(), [Inspector("entities", extractions, shown_cols=["values"])])
 
-    assert first_item(dataset).filter_values == {"flag": "True"}
+    fields_by_item = [
+        {field.label: field.value for field in item.fields}
+        for item in dataset.groups["entities"].texts["t1"].items
+    ]
+    assert fields_by_item[0]["Values"].tolist() == ["a", "b"]
+    assert "Values" not in fields_by_item[1]
+
+
+def test_missing_required_rows_warn_and_skip():
+    texts = pd.DataFrame([{"text_id": None, "text": "Alpha."}, {"text_id": "t1", "text": "Beta."}])
+    extractions = pd.DataFrame([{"text_id": "", "value": "x"}, {"text_id": "t1", "value": "y"}])
+
+    with pytest.warns(UserWarning, match="missing required value"):
+        dataset = normalize_dataset(texts, [Inspector("entities", extractions, shown_cols=["value"])])
+
+    assert list(dataset.groups["entities"].texts) == ["t1"]

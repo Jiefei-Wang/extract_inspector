@@ -9,7 +9,7 @@ import pandas as pd
 from flask import Flask, Response, jsonify, request
 
 from extract_inspector.inspect.matching import build_highlights
-from extract_inspector.inspect.models import ExtractionItem, Field, InspectorDataset, Span, TextDocument
+from extract_inspector.inspect.models import ExtractionItem, Field, Highlight, Inspector, InspectorDataset, Span, TextDocument
 from extract_inspector.inspect.normalize import normalize_dataset
 from extract_inspector.inspect.ui import INDEX_HTML
 
@@ -46,20 +46,33 @@ def parse_int(value: str | None, default: int, minimum: int, maximum: int | None
 
 
 def field_to_dict(field: Field) -> dict:
-    return {"label": field.label, "value": clean_json_value(field.value)}
+    return {"key": field.key, "label": field.label, "value": clean_json_value(field.value)}
+
+
+def highlight_to_dict(highlight: Highlight) -> dict:
+    return {
+        "source": highlight.source,
+        "text": highlight.text,
+        "related_fields": list(highlight.related_fields),
+    }
 
 
 def span_to_dict(span: Span) -> dict:
-    return {"start": span.start, "end": span.end, "text": span.text}
+    return {
+        "start": span.start,
+        "end": span.end,
+        "text": span.text,
+        "source": span.source,
+        "related_fields": list(span.related_fields),
+    }
 
 
 def item_to_dict(item: ExtractionItem) -> dict:
     return {
         "item_id": item.item_id,
-        "summary": item.summary,
-        "group": item.group,
-        "highlights": item.highlights,
-        "highlights_by_column": item.highlights_by_column,
+        "tag": item.tag,
+        "title": item.title,
+        "highlights": [highlight_to_dict(highlight) for highlight in item.highlights],
         "spans": [span_to_dict(span) for span in item.spans],
         "filter_values": item.filter_values,
         "fields": [field_to_dict(field) for field in item.fields],
@@ -79,6 +92,7 @@ def document_to_dict(document: TextDocument, items: list[ExtractionItem]) -> dic
     return {
         "text_id": document.text_id,
         "subject_id": document.subject_id,
+        "title": document.title,
         "text": document.text,
         "highlighted_html": highlighted_html,
         "items": item_dicts,
@@ -146,11 +160,11 @@ def filter_texts_page(
 
 
 def group_filter_definitions(dataset: InspectorDataset, group_key: str) -> list[dict]:
-    values_by_column = {column: set() for column in dataset.filter_categorical_cols}
     group = dataset.groups[group_key]
+    values_by_column = {column: set() for column in group.filter_cols}
     for document in group.texts.values():
         for item in document.items:
-            for column in dataset.filter_categorical_cols:
+            for column in group.filter_cols:
                 value = item.filter_values.get(column)
                 if value not in (None, ""):
                     values_by_column[column].add(value)
@@ -195,7 +209,7 @@ def create_app(dataset: InspectorDataset) -> Flask:
     def api_texts():
         group_key = request.args.get("group")
         if group_key not in dataset.groups:
-            return jsonify({"error": "Unknown extraction group."}), 400
+            return jsonify({"error": "Unknown inspector tab."}), 400
 
         offset = parse_int(request.args.get("offset"), 0, 0)
         limit = parse_int(request.args.get("limit"), DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT)
@@ -226,21 +240,13 @@ def create_app(dataset: InspectorDataset) -> Flask:
     return app
 
 
-def inspect_extractions(
+def inspector_web(
     texts: pd.DataFrame,
-    extractions: pd.DataFrame | dict[str, pd.DataFrame],
-    *,
-    text_id: str = "text_id",
+    *inspectors: Inspector,
+    text_id_col: str = "text_id",
     text_col: str = "text",
-    subject_id: str | None = "subject_id",
-    extraction_id: str | None = None,
-    extraction_group: str | None = None,
-    highlight_col: str | list[str] | None = "evidence",
-    span_start_col: str | None = None,
-    span_end_col: str | None = None,
-    filter_categorical_cols: str | list[str] | None = None,
-    exclude_fields: list[str] | None = None,
-    field_labels: dict[str, str] | None = None,
+    subject_id_col: str | None = "subject_id",
+    text_title: str = "Text: {text_id}",
     host: str = "127.0.0.1",
     port: int = 5001,
     debug: bool = False,
@@ -248,18 +254,11 @@ def inspect_extractions(
 ):
     dataset = normalize_dataset(
         texts,
-        extractions,
-        text_id=text_id,
+        inspectors,
+        text_id_col=text_id_col,
         text_col=text_col,
-        subject_id=subject_id,
-        extraction_id=extraction_id,
-        extraction_group=extraction_group,
-        highlight_col=highlight_col,
-        span_start_col=span_start_col,
-        span_end_col=span_end_col,
-        filter_categorical_cols=filter_categorical_cols,
-        exclude_fields=exclude_fields,
-        field_labels=field_labels,
+        subject_id_col=subject_id_col,
+        text_title=text_title,
     )
     app = create_app(dataset)
     url = f"http://{host}:{port}"
