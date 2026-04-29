@@ -1,8 +1,11 @@
+from datetime import date, datetime
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from extract_inspector.inspect import Corpus, Inspector
+from extract_inspector.inspect.app import create_app
 from extract_inspector.inspect.normalize import normalize_dataset
 
 
@@ -199,7 +202,7 @@ def test_array_field_values_do_not_break_field_filtering():
         {field.label: field.value for field in item.fields}
         for item in dataset.groups["entities"].texts["t1"].items
     ]
-    assert fields_by_item[0]["Values"].tolist() == ["a", "b"]
+    assert fields_by_item[0]["Values"] == ["a", "b"]
     assert "Values" not in fields_by_item[1]
 
 
@@ -211,3 +214,139 @@ def test_missing_required_rows_warn_and_skip():
         dataset = normalize_dataset(Corpus(texts), [Inspector("entities", extractions, shown_cols=["value"])])
 
     assert list(dataset.groups["entities"].texts) == ["t1"]
+
+
+def test_supported_column_types_are_normalized_for_dataset_and_api():
+    texts = pd.DataFrame(
+        [
+            {
+                "text_id": np.array("t1"),
+                "subject_id": date(2024, 1, 2),
+                "text": "A1c 8.2 on 2024-01-02.",
+            }
+        ]
+    )
+    extractions = pd.DataFrame(
+        [
+            {
+                "extraction_id": np.int64(7),
+                "text_id": "t1",
+                "value": np.array(["A1c", "8.2"]),
+                "collected_at": datetime(2024, 1, 2, 9, 30),
+                "evidence": np.array(["A1c 8.2", date(2024, 1, 2)]),
+                "span_start": np.array([0]),
+                "span_end": np.array([3]),
+                "reviewed": np.bool_(True),
+            }
+        ]
+    )
+
+    dataset = normalize_dataset(
+        Corpus(texts, text_title="Note {text_id} on {subject_id}"),
+        [
+            Inspector(
+                "entities",
+                extractions,
+                entity_title="Entity {extraction_id}: {collected_at}",
+                shown_cols=["value", "collected_at", "reviewed"],
+                highlight_cols=["evidence"],
+                highlight_span_start_cols=["span_start"],
+                highlight_span_end_cols=["span_end"],
+                filter_cols=["collected_at", "reviewed"],
+            )
+        ],
+        filter_cols=["subject_id"],
+    )
+
+    document = dataset.groups["entities"].texts["t1"]
+    item = document.items[0]
+
+    assert document.title == "Note t1 on 2024-01-02"
+    assert document.filter_values == {"subject_id": "2024-01-02"}
+    assert item.item_id == "7"
+    assert item.title == "Entity 7: 2024-01-02T09:30:00"
+    assert [(field.key, field.value) for field in item.fields] == [
+        ("value", ["A1c", "8.2"]),
+        ("collected_at", "2024-01-02T09:30:00"),
+        ("reviewed", True),
+    ]
+    assert [(highlight.source, highlight.text) for highlight in item.highlights] == [
+        ("evidence", "A1c 8.2"),
+        ("evidence", "2024-01-02"),
+    ]
+    assert [(span.start, span.end, span.text) for span in item.spans] == [(0, 3, "A1c")]
+    assert item.filter_values == {"collected_at": "2024-01-02T09:30:00", "reviewed": "True"}
+
+    client = create_app(dataset).test_client()
+    api_item = client.get("/api/texts?group=entities").json["texts"][0]["items"][0]
+
+    assert api_item["fields"][0]["value"] == ["A1c", "8.2"]
+    assert api_item["fields"][1]["value"] == "2024-01-02T09:30:00"
+
+
+@pytest.mark.parametrize(
+    ("texts", "inspector_rows", "message"),
+    [
+        (
+            pd.DataFrame([{"text_id": {"bad": "id"}, "text": "Alpha."}]),
+            pd.DataFrame([{"text_id": "t1"}]),
+            "texts row 0, column 'text_id'",
+        ),
+        (
+            pd.DataFrame([{"text_id": "t1", "text": {"bad": "text"}}]),
+            pd.DataFrame([{"text_id": "t1"}]),
+            "texts row 0, column 'text'",
+        ),
+        (
+            pd.DataFrame([{"text_id": "t1", "text": "Alpha."}]),
+            pd.DataFrame([{"text_id": {"bad": "id"}}]),
+            "inspector 'entities' row 0, column 'text_id'",
+        ),
+    ],
+)
+def test_invalid_required_key_column_types_raise_clear_errors(texts, inspector_rows, message):
+    with pytest.raises(TypeError, match=message):
+        normalize_dataset(Corpus(texts), [Inspector("entities", inspector_rows)])
+
+
+def test_invalid_nonessential_column_types_warn_and_skip_values():
+    extractions = pd.DataFrame(
+        [
+            {
+                "extraction_id": ["bad"],
+                "text_id": "t1",
+                "value": ["kept", {"bad": "field"}],
+                "evidence": ["Alpha", {"bad": "highlight"}],
+                "confidence": ["bad"],
+                "span_start": {"bad": "start"},
+                "span_end": 5,
+                "bad_title": {"bad": "title"},
+            }
+        ]
+    )
+
+    with pytest.warns(UserWarning, match="Unsupported value type"):
+        dataset = normalize_dataset(
+            Corpus(texts_df()),
+            [
+                Inspector(
+                    "entities",
+                    extractions,
+                    entity_title="Entity {bad_title}",
+                    shown_cols=["value"],
+                    highlight_cols=["evidence"],
+                    highlight_span_start_cols=["span_start"],
+                    highlight_span_end_cols=["span_end"],
+                    filter_cols=["confidence"],
+                )
+            ],
+        )
+
+    item = dataset.groups["entities"].texts["t1"].items[0]
+
+    assert item.item_id == "entities:t1:0"
+    assert item.title == "Entity"
+    assert [(field.key, field.value) for field in item.fields] == [("value", ["kept"])]
+    assert [(highlight.source, highlight.text) for highlight in item.highlights] == [("evidence", "Alpha")]
+    assert item.spans == []
+    assert item.filter_values == {}
